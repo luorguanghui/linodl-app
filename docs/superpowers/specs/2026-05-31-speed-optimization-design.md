@@ -88,3 +88,24 @@ python -m linodl --url https://www.linovelib.com/novel/5105/catalog --volumes 1 
 python -m linodl --search "无止尽的冬天" --debug --anti-bot cloak
 # 确认：不应弹出可见窗口（除非遇到 Cloudflare 挑战）
 ```
+
+## 2026-06-01 状态更新
+
+本设计中的搜索过滤、延迟削减和图片并行下载已经完成并进入当前代码基线。后续下载稳定性的重点已经从“尽快读取正文”调整为“等正文脚本稳定后再按浏览器渲染顺序提取正文”。
+
+章节乱序修复结论：
+
+- 正文页必须给站点脚本一个稳定窗口，否则可能读到 `#TextContent` 的中间态。
+- 仅等待还不够，部分章节页存在 DOM 顺序混淆，需要按渲染后的字符行位置重建文本顺序。
+- 章节下载仍保持串行，因为 Playwright sync API 不适合跨线程共享；并行优化目前只用于插图下载。
+- 已下载过的错误 txt 不会自动覆盖，需要删除后重新下载。
+
+当前验证基线：
+
+```text
+python -m pytest -q
+22 passed
+
+python -m compileall -q linodl tests
+passed
+```

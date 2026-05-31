@@ -338,3 +338,31 @@ python -m linodl --search "无止尽的冬天" --debug --anti-bot auto
 ```
 
 注意：该命令可能打开可见 CloakBrowser 并等待人工验证，不能作为无人值守测试。
+
+## 2026-06-01 项目状态更新
+
+项目已经初始化为 Git 仓库，并推送到私有 GitHub 仓库：
+
+```text
+https://github.com/luorguanghui/linodl-app
+```
+
+仓库目前包含源码、测试和文档；生成的下载内容、缓存、调试 HTML、虚拟环境和 `.env` 类文件已通过 `.gitignore` 排除。不要把账号、密码、cookie、token 或浏览器 profile 写入仓库。
+
+当前功能状态：
+
+- CLI、交互式下载、搜索、目录解析、章节下载、插图下载和 EPUB 导出已经可用。
+- 搜索的 Cloudflare 问题仍属于外部站点拦截风险；CloakBrowser 能保存和复用浏览器状态，但不能自动解决验证码。
+- 章节 txt 乱序问题已经修复：下载器会等待 `#TextContent` 被站点脚本重排稳定，然后按浏览器实际渲染出来的字符行位置重建正文顺序，避免直接使用混淆后的 DOM 顺序。
+- 问题样例页 `https://www.linovelib.com/novel/2139/209975_3.html` 已用于手动验收，关键段落顺序已恢复。
+- 已下载过的旧乱序 txt 不会自动改写；需要删除对应章节文件后重新下载。
+
+当前测试基线已更新为：
+
+```text
+python -m pytest -q
+22 passed
+
+python -m compileall -q linodl tests
+passed
+```
