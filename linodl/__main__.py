@@ -15,6 +15,17 @@ def main():
     if debug:
         sys.argv.remove("--debug")
 
+    if "--gui" in sys.argv:
+        sys.argv.remove("--gui")
+        try:
+            from .gui.app import MainWindow
+            MainWindow(config, debug=debug).run()
+        except ImportError as e:
+            print(f"GUI dependencies not installed: {e}")
+            print("Run: pip install customtkinter")
+            sys.exit(1)
+        return
+
     if len(sys.argv) > 1:
         _batch_mode(config, debug)
     else:

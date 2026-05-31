@@ -4,3 +4,4 @@ cloakbrowser>=0.3.31
 rich>=13.0
 ebooklib>=0.18
 pytest>=9.0
+customtkinter>=5.2
