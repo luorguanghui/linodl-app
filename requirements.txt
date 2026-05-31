@@ -1,0 +1,6 @@
+cloudscraper>=1.2.71
+playwright>=1.40
+cloakbrowser>=0.3.31
+rich>=13.0
+ebooklib>=0.18
+pytest>=9.0
