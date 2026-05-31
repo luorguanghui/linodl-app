@@ -18,18 +18,18 @@ class SearchPanel(ctk.CTkFrame):
         search_frame = ctk.CTkFrame(self, fg_color="transparent")
         search_frame.pack(fill="x", padx=16, pady=(16, 4))
 
-        ctk.CTkLabel(search_frame, text="Search", font=ctk.CTkFont(size=18, weight="bold")).pack(
+        ctk.CTkLabel(search_frame, text="搜索", font=ctk.CTkFont(size=18, weight="bold")).pack(
             anchor="w")
 
         entry_frame = ctk.CTkFrame(search_frame, fg_color="transparent")
         entry_frame.pack(fill="x", pady=(8, 0))
 
-        self._keyword_entry = ctk.CTkEntry(entry_frame, placeholder_text="Enter novel keyword...", height=36)
+        self._keyword_entry = ctk.CTkEntry(entry_frame, placeholder_text="输入小说关键词...", height=36)
         self._keyword_entry.pack(side="left", fill="x", expand=True)
         self._keyword_entry.bind("<Return>", lambda e: self._start_search())
 
         self._search_btn = ctk.CTkButton(
-            entry_frame, text="Search", command=self._start_search, width=100
+            entry_frame, text="搜索", command=self._start_search, width=100
         )
         self._search_btn.pack(side="left", padx=(8, 0))
 
@@ -37,7 +37,7 @@ class SearchPanel(ctk.CTkFrame):
         url_frame = ctk.CTkFrame(self, fg_color="transparent")
         url_frame.pack(fill="x", padx=16, pady=4)
 
-        ctk.CTkLabel(url_frame, text="Or paste catalog URL:", font=ctk.CTkFont(size=12)).pack(anchor="w")
+        ctk.CTkLabel(url_frame, text="或粘贴目录 URL:", font=ctk.CTkFont(size=12)).pack(anchor="w")
         url_entry_frame = ctk.CTkFrame(url_frame, fg_color="transparent")
         url_entry_frame.pack(fill="x", pady=(2, 0))
 
@@ -48,7 +48,7 @@ class SearchPanel(ctk.CTkFrame):
         self._url_entry.bind("<Return>", lambda e: self._start_url_download())
 
         ctk.CTkButton(
-            url_entry_frame, text="Open", command=self._start_url_download, width=80
+            url_entry_frame, text="打开", command=self._start_url_download, width=80
         ).pack(side="left", padx=(8, 0))
 
         # Status
@@ -62,11 +62,11 @@ class SearchPanel(ctk.CTkFrame):
     def _start_search(self):
         keyword = self._keyword_entry.get().strip()
         if not keyword:
-            self._status_label.configure(text="Please enter a keyword.", text_color="red")
+            self._status_label.configure(text="请输入关键词。", text_color="red")
             return
 
         self._set_ui_busy(True)
-        self._status_label.configure(text="Searching...", text_color="gray")
+        self._status_label.configure(text="正在搜索...", text_color="gray")
         self._clear_results()
 
         self._worker = SearchWorker(keyword, self._config, self._queue)
@@ -75,10 +75,10 @@ class SearchPanel(ctk.CTkFrame):
     def _start_url_download(self):
         url = self._url_entry.get().strip()
         if not url:
-            self._status_label.configure(text="Please paste a catalog URL.", text_color="red")
+            self._status_label.configure(text="请粘贴目录 URL。", text_color="red")
             return
         if "linovelib.com" not in url:
-            self._status_label.configure(text="Invalid URL — must be a linovelib.com link.", text_color="red")
+            self._status_label.configure(text="无效 URL — 必须是 linovelib.com 链接。", text_color="red")
             return
         self._on_url_download(url)
 
@@ -86,15 +86,15 @@ class SearchPanel(ctk.CTkFrame):
         self._set_ui_busy(False)
         self._results = novels
         if not novels:
-            self._status_label.configure(text="No results found.", text_color="#f39c12")
+            self._status_label.configure(text="未找到结果。", text_color="#f39c12")
             return
 
-        self._status_label.configure(text=f"Found {len(novels)} result(s).", text_color="green")
+        self._status_label.configure(text=f"找到 {len(novels)} 条结果。", text_color="green")
         self._populate_results(novels)
 
     def on_search_error(self, msg):
         self._set_ui_busy(False)
-        self._status_label.configure(text=f"Search failed: {msg}", text_color="red")
+        self._status_label.configure(text=f"搜索失败: {msg}", text_color="red")
 
     def _populate_results(self, novels):
         self._clear_results()
@@ -105,14 +105,14 @@ class SearchPanel(ctk.CTkFrame):
             info_frame = ctk.CTkFrame(card, fg_color="transparent")
             info_frame.pack(side="left", fill="x", expand=True, padx=8, pady=6)
 
-            title = novel.title or "(Unknown)"
+            title = novel.title or "(未知)"
             ctk.CTkLabel(info_frame, text=title, font=ctk.CTkFont(weight="bold"), anchor="w").pack(fill="x")
-            detail = f"Author: {novel.author or '-'}   |   ID: {novel.novel_id}"
+            detail = f"作者: {novel.author or '-'}   |   ID: {novel.novel_id}"
             ctk.CTkLabel(info_frame, text=detail, text_color="gray", font=ctk.CTkFont(size=11), anchor="w").pack(fill="x")
 
             n = novel
             ctk.CTkButton(
-                card, text="Select", width=80,
+                card, text="选择", width=80,
                 command=lambda novel=n: self._on_novel_selected(novel)
             ).pack(side="right", padx=8, pady=6)
 
@@ -126,6 +126,6 @@ class SearchPanel(ctk.CTkFrame):
 
     def _set_ui_busy(self, busy):
         if busy:
-            self._search_btn.configure(text="Searching...", state="disabled")
+            self._search_btn.configure(text="搜索中...", state="disabled")
         else:
-            self._search_btn.configure(text="Search", state="normal")
+            self._search_btn.configure(text="搜索", state="normal")

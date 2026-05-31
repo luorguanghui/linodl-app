@@ -15,7 +15,7 @@ class ExportPanel(ctk.CTkFrame):
         self._subdirs = []
         self._dir_check_vars = []
 
-        ctk.CTkLabel(self, text="Export EPUB", font=ctk.CTkFont(size=18, weight="bold")).pack(
+        ctk.CTkLabel(self, text="导出 EPUB", font=ctk.CTkFont(size=18, weight="bold")).pack(
             anchor="w", padx=16, pady=(16, 8))
 
         # Directory picker
@@ -27,11 +27,11 @@ class ExportPanel(ctk.CTkFrame):
         self._dir_entry.pack(side="left", fill="x", expand=True)
 
         ctk.CTkButton(
-            dir_frame, text="Browse", width=80, command=self._browse_dir
+            dir_frame, text="浏览", width=80, command=self._browse_dir
         ).pack(side="left", padx=(4, 0))
 
         ctk.CTkButton(
-            dir_frame, text="Scan", width=60, command=self._scan_dir
+            dir_frame, text="扫描", width=60, command=self._scan_dir
         ).pack(side="left", padx=(4, 0))
 
         # Subdirectory list
@@ -43,21 +43,21 @@ class ExportPanel(ctk.CTkFrame):
         option_frame.pack(fill="x", padx=16, pady=4)
 
         self._per_volume_var = ctk.BooleanVar(value=True)
-        ctk.CTkCheckBox(option_frame, text="Export per volume (uncheck for single EPUB)", variable=self._per_volume_var).pack(side="left")
+        ctk.CTkCheckBox(option_frame, text="分卷导出（取消勾选则合并为单个 EPUB）", variable=self._per_volume_var).pack(side="left")
 
         # Action buttons
         action_frame = ctk.CTkFrame(self, fg_color="transparent")
         action_frame.pack(fill="x", padx=16, pady=4)
 
         ctk.CTkButton(
-            action_frame, text="Select All", width=90, command=lambda: self._toggle_all(True)
+            action_frame, text="全选", width=90, command=lambda: self._toggle_all(True)
         ).pack(side="left", padx=(0, 4))
         ctk.CTkButton(
-            action_frame, text="Deselect All", width=90, command=lambda: self._toggle_all(False)
+            action_frame, text="取消全选", width=90, command=lambda: self._toggle_all(False)
         ).pack(side="left")
 
         self._export_btn = ctk.CTkButton(
-            action_frame, text="Export EPUB", command=self._start_export,
+            action_frame, text="导出 EPUB", command=self._start_export,
             fg_color="#3498db", hover_color="#2980b9", width=100
         )
         self._export_btn.pack(side="right")
@@ -79,7 +79,7 @@ class ExportPanel(ctk.CTkFrame):
     def _scan_dir(self):
         output_dir = self._dir_var.get()
         if not os.path.isdir(output_dir):
-            self._status_label.configure(text="Directory does not exist.", text_color="red")
+            self._status_label.configure(text="目录不存在。", text_color="red")
             return
 
         self._subdirs = [
@@ -87,10 +87,11 @@ class ExportPanel(ctk.CTkFrame):
             if os.path.isdir(os.path.join(output_dir, d))
         ]
         self._populate_dir_list()
-        self._status_label.configure(
-            text=f"Found {len(self._subdirs)} subdirector{'y' if len(self._subdirs)==1 else 'ies'}.",
-            text_color="green"
-        )
+        if len(self._subdirs) == 1:
+            text = "找到 1 个子目录。"
+        else:
+            text = f"找到 {len(self._subdirs)} 个子目录。"
+        self._status_label.configure(text=text, text_color="green")
 
     def _populate_dir_list(self):
         for var, cb in self._dir_check_vars:
@@ -105,7 +106,7 @@ class ExportPanel(ctk.CTkFrame):
             ])
             var = ctk.BooleanVar(value=False)
             cb = ctk.CTkCheckBox(
-                self._dir_list_frame, text=f"{d}  ({txt_count} chapters)", variable=var
+                self._dir_list_frame, text=f"{d}  ({txt_count} 章)", variable=var
             )
             cb.pack(fill="x", padx=8, pady=2)
             self._dir_check_vars.append((d, var, cb))
@@ -117,10 +118,10 @@ class ExportPanel(ctk.CTkFrame):
     def _start_export(self):
         selected = [name for name, var, cb in self._dir_check_vars if var.get()]
         if not selected:
-            self._status_label.configure(text="Select at least one directory.", text_color="red")
+            self._status_label.configure(text="请至少选择一个目录。", text_color="red")
             return
 
-        self._status_label.configure(text="Exporting...", text_color="gray")
+        self._status_label.configure(text="正在导出...", text_color="gray")
         self._export_btn.configure(state="disabled")
 
         output_dir = self._dir_var.get()
@@ -132,8 +133,8 @@ class ExportPanel(ctk.CTkFrame):
         self._worker.start()
 
     def on_export_result(self, paths):
-        self._export_btn.configure(text="Export EPUB", state="normal", fg_color="#27ae60")
-        self._status_label.configure(text="Export complete!", text_color="green")
+        self._export_btn.configure(text="导出 EPUB", state="normal", fg_color="#27ae60")
+        self._status_label.configure(text="导出完成!", text_color="green")
 
         paths_list = paths if isinstance(paths, list) else [paths]
         self._result_text.configure(state="normal")

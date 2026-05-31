@@ -24,7 +24,7 @@ class DownloadPanel(ctk.CTkFrame):
         self._header_frame.pack(fill="x", padx=16, pady=(16, 8))
 
         self._title_label = ctk.CTkLabel(
-            self._header_frame, text="Download", font=ctk.CTkFont(size=18, weight="bold")
+            self._header_frame, text="下载", font=ctk.CTkFont(size=18, weight="bold")
         )
         self._title_label.pack(anchor="w")
 
@@ -40,17 +40,17 @@ class DownloadPanel(ctk.CTkFrame):
         action_frame.pack(fill="x", padx=16, pady=4)
 
         ctk.CTkButton(
-            action_frame, text="Select All", width=90,
+            action_frame, text="全选", width=90,
             command=self._select_all
         ).pack(side="left", padx=(0, 4))
 
         ctk.CTkButton(
-            action_frame, text="Deselect All", width=90,
+            action_frame, text="取消全选", width=90,
             command=self._deselect_all
         ).pack(side="left")
 
         self._download_btn = ctk.CTkButton(
-            action_frame, text="Start Download", fg_color="#27ae60", hover_color="#219a52",
+            action_frame, text="开始下载", fg_color="#27ae60", hover_color="#219a52",
             command=self._start_download, height=36, state="disabled"
         )
         self._download_btn.pack(side="right")
@@ -69,17 +69,17 @@ class DownloadPanel(ctk.CTkFrame):
         self._issue_tree = IssueTree(self._result_frame)
 
         self._retry_btn = ctk.CTkButton(
-            self._result_frame, text="Retry Failed Chapters", fg_color="#f39c12",
+            self._result_frame, text="重试失败章节", fg_color="#f39c12",
             hover_color="#d68910", command=self._start_retry
         )
         self._export_btn = ctk.CTkButton(
-            self._result_frame, text="Export EPUB", fg_color="#3498db",
+            self._result_frame, text="导出 EPUB", fg_color="#3498db",
             hover_color="#2980b9", command=self._start_export
         )
 
         # Back button
         ctk.CTkButton(
-            self, text="Back to Search", command=self._show_search, fg_color="transparent",
+            self, text="← 返回搜索", command=self._show_search, fg_color="transparent",
             text_color="gray", height=28
         ).pack(padx=16, pady=(4, 8))
 
@@ -91,7 +91,7 @@ class DownloadPanel(ctk.CTkFrame):
 
         url = url_or_novel_info
         self._clear_all()
-        self._title_label.configure(text="Fetching catalog...")
+        self._title_label.configure(text="正在获取目录...")
         self._author_label.configure(text=url)
         self._worker = CatalogWorker(url, self._config, self._queue)
         self._worker.start()
@@ -103,9 +103,9 @@ class DownloadPanel(ctk.CTkFrame):
         self._show_catalog()
 
     def _show_catalog(self):
-        self._title_label.configure(text=self._novel_info.title or "Novel")
+        self._title_label.configure(text=self._novel_info.title or "小说")
         self._author_label.configure(
-            text=f"Author: {self._novel_info.author or '-'}   |   {len(self._volumes)} volume(s)"
+            text=f"作者: {self._novel_info.author or '-'}   |   共 {len(self._volumes)} 卷"
         )
         self._populate_volumes()
         self._download_btn.configure(state="normal")
@@ -114,9 +114,9 @@ class DownloadPanel(ctk.CTkFrame):
         self._clear_volume_widgets()
         for vol in self._volumes:
             var = ctk.BooleanVar(value=False)
-            label = f"{vol.name}  ({vol.text_count} chapters"
+            label = f"{vol.name}  ({vol.text_count} 章"
             if vol.illus_count:
-                label += f", {vol.illus_count} illustrations"
+                label += f", {vol.illus_count} 插图"
             label += ")"
 
             cb = ctk.CTkCheckBox(self._volume_frame, text=label, variable=var)
@@ -148,7 +148,7 @@ class DownloadPanel(ctk.CTkFrame):
             for c in v.chapters
         )
         self._progress_area.set_total(total)
-        self._progress_area.update(0, "Starting download...")
+        self._progress_area.update(0, "正在准备下载...")
         self._download_btn.configure(state="disabled")
 
         self._worker = DownloadWorker(
@@ -162,10 +162,10 @@ class DownloadPanel(ctk.CTkFrame):
         self._downloader = downloader
         self._progress_area.pack_forget()
 
-        summary = f"Download Complete — {result.novel_title}\n"
-        summary += f"Success: {result.success}  |  Skipped: {result.skipped}  |  Failed: {result.failed}"
+        summary = f"下载完成 — {result.novel_title}\n"
+        summary += f"成功: {result.success}  |  跳过: {result.skipped}  |  失败: {result.failed}"
         if result.failed > 0:
-            summary += f"\nOutput: {result.output_dir}"
+            summary += f"\n输出目录: {result.output_dir}"
         self._result_summary.configure(
             text=summary,
             text_color="green" if result.failed == 0 else "#f39c12"
@@ -186,7 +186,7 @@ class DownloadPanel(ctk.CTkFrame):
 
     def on_error(self, msg):
         self._progress_area.pack_forget()
-        self._title_label.configure(text=f"Error: {msg}", text_color="red")
+        self._title_label.configure(text=f"错误: {msg}", text_color="red")
         self._download_btn.configure(state="normal")
 
     def _start_retry(self):
@@ -195,7 +195,7 @@ class DownloadPanel(ctk.CTkFrame):
         self._downloader.prepare_retry(self._verification)
         self._hide_result()
         self._progress_area.pack(fill="x", padx=16, pady=8)
-        self._progress_area.update(0, "Retrying failed chapters...")
+        self._progress_area.update(0, "正在重试失败章节...")
         self._download_btn.configure(state="disabled")
 
         self._worker = RetryWorker(
@@ -205,7 +205,7 @@ class DownloadPanel(ctk.CTkFrame):
         self._worker.start()
 
     def _start_export(self):
-        self._export_btn.configure(text="Exporting...", state="disabled")
+        self._export_btn.configure(text="正在导出...", state="disabled")
         worker = ExportWorker(
             self._novel_info, self._volumes, self._config.output_dir, True, self._queue
         )
@@ -213,9 +213,9 @@ class DownloadPanel(ctk.CTkFrame):
         worker.start()
 
     def on_export_result(self, paths):
-        self._export_btn.configure(text="EPUB Exported!", state="normal", fg_color="green")
+        self._export_btn.configure(text="EPUB 已导出!", state="normal", fg_color="green")
         paths_list = paths if isinstance(paths, list) else [paths]
-        text = self._result_summary.cget("text") + "\n\nEPUB saved:"
+        text = self._result_summary.cget("text") + "\n\nEPUB 保存至:"
         for p in paths_list:
             text += f"\n  {p}"
         self._result_summary.configure(text=text)

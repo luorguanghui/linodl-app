@@ -10,7 +10,7 @@ class WarmupPanel(ctk.CTkFrame):
         self._queue = message_queue
         self._worker = None
 
-        ctk.CTkLabel(self, text="Cloudflare Warmup", font=ctk.CTkFont(size=18, weight="bold")).pack(
+        ctk.CTkLabel(self, text="Cloudflare 预热", font=ctk.CTkFont(size=18, weight="bold")).pack(
             anchor="w", padx=16, pady=(16, 8))
 
         # Instructions
@@ -18,11 +18,11 @@ class WarmupPanel(ctk.CTkFrame):
         instr_frame.pack(fill="x", padx=16, pady=4)
 
         instructions = [
-            "1. Click 'Start Warmup' to open the CloakBrowser window",
-            "2. In the browser, complete the 'Verify you are human' challenge",
-            "3. After passing verification, the browser profile is saved automatically",
-            "4. Subsequent downloads will reuse this profile (fewer verifications)",
-            f"5. Profile saved to: {config.profile_dir}\\cloak",
+            "1. 点击「开始预热」打开 CloakBrowser 窗口",
+            "2. 在浏览器中完成「验证您是真人」的挑战",
+            "3. 验证通过后，浏览器档案将自动保存",
+            "4. 后续下载可复用此档案（减少验证频率）",
+            f"5. 档案保存位置: {config.profile_dir}\\cloak",
         ]
         for line in instructions:
             ctk.CTkLabel(instr_frame, text=line, anchor="w", font=ctk.CTkFont(size=12)).pack(
@@ -30,7 +30,7 @@ class WarmupPanel(ctk.CTkFrame):
 
         # Start button
         self._start_btn = ctk.CTkButton(
-            self, text="Start Warmup", command=self._start_warmup,
+            self, text="开始预热", command=self._start_warmup,
             fg_color="#3498db", hover_color="#2980b9", height=36
         )
         self._start_btn.pack(padx=16, pady=(16, 8))
@@ -43,10 +43,10 @@ class WarmupPanel(ctk.CTkFrame):
         self._status_label.pack(anchor="w", padx=16, pady=8)
 
     def _start_warmup(self):
-        self._start_btn.configure(state="disabled", text="Warming up...")
+        self._start_btn.configure(state="disabled", text="正在预热...")
         self._progress_bar.pack(fill="x", padx=16, pady=4)
         self._progress_bar.start()
-        self._status_label.configure(text="Starting CloakBrowser...", text_color="gray")
+        self._status_label.configure(text="正在启动 CloakBrowser...", text_color="gray")
 
         self._worker = WarmupWorker(self._config, self._queue)
         self._worker.start()
@@ -57,14 +57,14 @@ class WarmupPanel(ctk.CTkFrame):
     def on_result(self, msg):
         self._progress_bar.stop()
         self._progress_bar.pack_forget()
-        self._start_btn.configure(text="Start Warmup", state="normal")
+        self._start_btn.configure(text="开始预热", state="normal")
         self._status_label.configure(text=msg, text_color="green")
 
     def on_error(self, msg):
         self._progress_bar.stop()
         self._progress_bar.pack_forget()
-        self._start_btn.configure(text="Start Warmup", state="normal")
-        self._status_label.configure(text=f"Error: {msg}", text_color="red")
+        self._start_btn.configure(text="开始预热", state="normal")
+        self._status_label.configure(text=f"错误: {msg}", text_color="red")
 
     def on_done(self):
-        self._start_btn.configure(text="Start Warmup", state="normal")
+        self._start_btn.configure(text="开始预热", state="normal")

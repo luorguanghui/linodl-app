@@ -38,7 +38,7 @@ class MainWindow(ctk.CTk):
         self._poll_queue()
 
     def _setup_window(self):
-        self.title("linodl - Novel Downloader")
+        self.title("linodl - 小说下载器")
         self.geometry("1024x768")
         self.minsize(800, 600)
 
@@ -66,17 +66,17 @@ class MainWindow(ctk.CTk):
         ).pack(pady=(16, 4))
 
         ctk.CTkLabel(
-            self._sidebar, text="Novel Downloader",
+            self._sidebar, text="小说下载器",
             text_color="gray", font=ctk.CTkFont(size=11)
         ).pack(pady=(0, 16))
 
         nav_buttons = [
-            (PANEL_SEARCH, "Search & Download"),
-            (PANEL_DOWNLOAD, "URL Download"),
-            (PANEL_EXPORT, "EPUB Export"),
-            (PANEL_VERIFY, "Verify"),
-            (PANEL_SETTINGS, "Settings"),
-            (PANEL_WARMUP, "CF Warmup"),
+            (PANEL_SEARCH, "搜索并下载"),
+            (PANEL_DOWNLOAD, "URL 下载"),
+            (PANEL_EXPORT, "EPUB 导出"),
+            (PANEL_VERIFY, "校验"),
+            (PANEL_SETTINGS, "设置"),
+            (PANEL_WARMUP, "CF 预热"),
         ]
 
         self._nav_btns = {}
@@ -102,7 +102,7 @@ class MainWindow(ctk.CTk):
         self._status_bar.grid_propagate(False)
 
         self._status_label = ctk.CTkLabel(
-            self._status_bar, text="Ready", anchor="w",
+            self._status_bar, text="就绪", anchor="w",
             font=ctk.CTkFont(size=11), text_color="gray"
         )
         self._status_label.pack(side="left", padx=12, pady=2)
@@ -178,13 +178,13 @@ class MainWindow(ctk.CTk):
                 self._active_worker_panel.on_progress(str(data))
 
         elif msg_type == "result":
-            self._status_label.configure(text="Done.", text_color="green")
+            self._status_label.configure(text="完成。", text_color="green")
             if self._active_worker_panel is not None:
                 self._dispatch_result(data)
             self._active_worker_panel = None
 
         elif msg_type == "error":
-            self._status_label.configure(text=f"Error: {str(data)[:120]}", text_color="red")
+            self._status_label.configure(text=f"错误: {str(data)[:120]}", text_color="red")
             if self._active_worker_panel and hasattr(self._active_worker_panel, "on_error"):
                 self._active_worker_panel.on_error(str(data))
             self._active_worker_panel = None

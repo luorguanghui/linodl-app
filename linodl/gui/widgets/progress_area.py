@@ -7,7 +7,7 @@ class ProgressArea(ctk.CTkFrame):
 
         self._on_cancel = on_cancel
 
-        self._status_label = ctk.CTkLabel(self, text="Ready", anchor="w")
+        self._status_label = ctk.CTkLabel(self, text="就绪", anchor="w")
         self._status_label.pack(fill="x", padx=8, pady=(8, 2))
 
         self._progress_bar = ctk.CTkProgressBar(self, mode="determinate")
@@ -18,13 +18,13 @@ class ProgressArea(ctk.CTkFrame):
         self._stats_label.pack(fill="x", padx=8, pady=2)
 
         self._cancel_btn = ctk.CTkButton(
-            self, text="Cancel", fg_color="#e74c3c", hover_color="#c0392b",
+            self, text="取消", fg_color="#e74c3c", hover_color="#c0392b",
             command=self._on_cancel_click, width=100
         )
         self._cancel_btn.pack(pady=(2, 8))
 
     def _on_cancel_click(self):
-        self._cancel_btn.configure(text="Cancelling...", state="disabled")
+        self._cancel_btn.configure(text="正在取消...", state="disabled")
         if self._on_cancel:
             self._on_cancel()
 
@@ -43,7 +43,7 @@ class ProgressArea(ctk.CTkFrame):
 
     def set_result(self, success: int, skipped: int, failed: int):
         self._stats_label.configure(
-            text=f"Success: {success}  |  Skipped: {skipped}  |  Failed: {failed}"
+            text=f"成功: {success}  |  跳过: {skipped}  |  失败: {failed}"
         )
 
     def show_indeterminate(self):
@@ -55,7 +55,7 @@ class ProgressArea(ctk.CTkFrame):
         self._progress_bar.configure(mode="determinate")
         self._progress_bar.set(0)
 
-    def set_complete(self, message: str = "Complete"):
+    def set_complete(self, message: str = "完成"):
         self._progress_bar.set(1)
         self._status_label.configure(text=message)
-        self._cancel_btn.configure(text="Cancel", state="disabled")
+        self._cancel_btn.configure(text="取消", state="disabled")

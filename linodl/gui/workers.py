@@ -44,7 +44,7 @@ class SearchWorker(BackgroundWorker):
     def run(self):
         session = None
         try:
-            self.report_progress("Starting browser for search...")
+            self.report_progress("正在启动浏览器...")
             session = BrowserSession(
                 headless=self.config.headless,
                 anti_bot_mode=self.config.anti_bot_mode,
@@ -54,7 +54,7 @@ class SearchWorker(BackgroundWorker):
                 progress_callback=self.report_progress,
             )
             session.start()
-            self.report_progress(f"Searching for: {self.keyword}")
+            self.report_progress(f"正在搜索: {self.keyword}")
             engine = SearchEngine(browser_session=session)
             results = engine.search(self.keyword)
             self.report_result(results)
@@ -78,7 +78,7 @@ class CatalogWorker(BackgroundWorker):
     def run(self):
         session = None
         try:
-            self.report_progress("Fetching catalog...")
+            self.report_progress("正在获取目录...")
             session = BrowserSession(
                 headless=self.config.headless,
                 anti_bot_mode=self.config.anti_bot_mode,
@@ -116,7 +116,7 @@ class DownloadWorker(BackgroundWorker):
     def run(self):
         session = None
         try:
-            self.report_progress("Starting browser...")
+            self.report_progress("正在启动浏览器...")
             session = BrowserSession(
                 headless=self.config.headless,
                 anti_bot_mode=self.config.anti_bot_mode,
@@ -131,10 +131,10 @@ class DownloadWorker(BackgroundWorker):
                 return
 
             if self.config.has_credentials():
-                self.report_progress("Logging in...")
+                self.report_progress("正在登录...")
                 ok, msg = login(session, self.config.username, self.config.password)
                 if not ok:
-                    self.report_error(f"Login failed: {msg}")
+                    self.report_error(f"登录失败: {msg}")
                     return
 
             if self.is_cancelled():
@@ -146,7 +146,7 @@ class DownloadWorker(BackgroundWorker):
                 progress_callback=self.report_progress,
             )
 
-            self.report_progress("Downloading...")
+            self.report_progress("正在下载...")
             result = downloader.download(
                 self.volumes,
                 self.selected_volume_names,
@@ -157,7 +157,7 @@ class DownloadWorker(BackgroundWorker):
             if self.is_cancelled():
                 return
 
-            self.report_progress("Verifying...")
+            self.report_progress("正在校验...")
             verification = downloader.verify_all(self.volumes, self.selected_volume_names)
 
             self.report_result((result, verification, downloader))
@@ -187,7 +187,7 @@ class RetryWorker(BackgroundWorker):
     def run(self):
         session = None
         try:
-            self.report_progress("Starting browser for retry...")
+            self.report_progress("正在启动浏览器用于重试...")
             session = BrowserSession(
                 headless=self.config.headless,
                 anti_bot_mode=self.config.anti_bot_mode,
@@ -201,10 +201,10 @@ class RetryWorker(BackgroundWorker):
             if self.config.has_credentials():
                 ok, msg = login(session, self.config.username, self.config.password)
                 if not ok:
-                    self.report_error(f"Login failed: {msg}")
+                    self.report_error(f"登录失败: {msg}")
                     return
 
-            self.report_progress("Retrying failed chapters...")
+            self.report_progress("正在重试失败章节...")
             result = self.downloader.download(
                 self.volumes,
                 self.selected_volume_names,
@@ -212,7 +212,7 @@ class RetryWorker(BackgroundWorker):
                 browser_session=session,
             )
 
-            self.report_progress("Verifying after retry...")
+            self.report_progress("重试后校验中...")
             verification = self.downloader.verify_all(self.volumes, self.selected_volume_names)
 
             self.report_result((result, verification, self.downloader))
@@ -237,7 +237,7 @@ class ExportWorker(BackgroundWorker):
 
     def run(self):
         try:
-            self.report_progress("Exporting EPUB...")
+            self.report_progress("正在导出 EPUB...")
             exporter = EpubExporter()
             result = exporter.export(
                 self.novel_info, self.volumes, self.base_dir, per_volume=self.per_volume
@@ -258,7 +258,7 @@ class VerifyWorker(BackgroundWorker):
 
     def run(self):
         try:
-            self.report_progress("Verifying downloads...")
+            self.report_progress("正在校验下载内容...")
             downloader = Downloader(output_dir=self.output_dir)
             result = downloader.verify_all(self.volumes, self.selected_volume_names)
             self.report_result(result)
@@ -276,7 +276,7 @@ class WarmupWorker(BackgroundWorker):
     def run(self):
         session = None
         try:
-            self.report_progress("Starting CloakBrowser for Cloudflare warmup...")
+            self.report_progress("正在启动 CloakBrowser 进行 Cloudflare 预热...")
             session = BrowserSession(
                 headless=False,
                 anti_bot_mode="cloak",
@@ -287,15 +287,15 @@ class WarmupWorker(BackgroundWorker):
             )
             session.start(prefer_cloak=True)
 
-            self.report_progress("Opening home page — complete the verification in the browser window...")
+            self.report_progress("正在打开首页 — 请在浏览器窗口中完成人机验证...")
             from ..core.browser import BASE_URL
             ok = session.navigate_with_challenge_retry(
-                BASE_URL, reason="Cloudflare warmup", timeout_ms=600000
+                BASE_URL, reason="Cloudflare 预热", timeout_ms=600000
             )
             if ok:
-                self.report_result("Cloudflare verification completed successfully.")
+                self.report_result("Cloudflare 验证成功完成。")
             else:
-                self.report_error("Cloudflare verification timed out.")
+                self.report_error("Cloudflare 验证超时。")
         except Exception as e:
             self.report_error(str(e))
         finally:
