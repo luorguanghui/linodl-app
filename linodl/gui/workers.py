@@ -320,7 +320,6 @@ def perform_cloudflare_warmup(session, timeout_ms: int = 600000, progress_callba
         if not session.wait_for_challenge_clear(
             "warmup-search",
             timeout_ms=timeout_ms,
-            target_url=search_url,
         ):
             return False, "Cloudflare 验证超时。"
 

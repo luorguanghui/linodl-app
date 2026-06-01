@@ -187,3 +187,42 @@ def test_cloudflare_warmup_confirms_search_page_before_success():
     assert ok is True
     assert "验证成功完成" in message
     assert session.goto_urls == [BASE_URL, f"{BASE_URL}/S6/"]
+
+
+class _SearchChallengeWarmupSession(_BlankWarmupSession):
+    def __init__(self):
+        super().__init__(
+            '<html><body><a href="/novel/1/catalog">linovelib 小说搜索入口</a></body></html>'
+        )
+        self.wait_calls = []
+
+    def page_has_challenge(self):
+        return self.goto_urls[-1].endswith("/S6/") if self.goto_urls else False
+
+    def wait_for_challenge_clear(
+        self,
+        reason="",
+        timeout_ms=300000,
+        poll_ms=1000,
+        target_url=None,
+    ):
+        self.wait_calls.append({
+            "reason": reason,
+            "timeout_ms": timeout_ms,
+            "target_url": target_url,
+        })
+        return True
+
+
+def test_cloudflare_warmup_does_not_reopen_search_page_during_manual_verification():
+    session = _SearchChallengeWarmupSession()
+
+    ok, message = perform_cloudflare_warmup(session, timeout_ms=50)
+
+    assert ok is True
+    assert "验证成功完成" in message
+    assert session.wait_calls == [{
+        "reason": "warmup-search",
+        "timeout_ms": 50,
+        "target_url": None,
+    }]
