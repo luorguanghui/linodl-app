@@ -3,6 +3,7 @@ import types
 
 from linodl.core.browser import BASE_URL, BrowserSession, is_cloudflare_challenge
 from linodl.core.downloader import extract_image_urls
+from linodl.gui.workers import perform_cloudflare_warmup
 
 
 def test_detects_cloudflare_challenge_markers():
@@ -136,3 +137,53 @@ def test_start_cloak_uses_cloakbrowser_fingerprint_defaults_without_custom_ua(mo
     assert captured["kwargs"]["humanize"] is True
     assert captured["kwargs"]["human_preset"] == "careful"
     assert captured["kwargs"]["headless"] is True
+
+
+class _BlankWarmupSession:
+    def __init__(self, html="<html><head></head><body></body></html>"):
+        self.started = False
+        self.closed = False
+        self.goto_urls = []
+        self.page = self
+        self._html = html
+
+    def start(self, prefer_cloak=False):
+        self.started = prefer_cloak
+
+    def navigate_with_challenge_retry(self, url, reason="", timeout_ms=300000):
+        self.goto_urls.append(url)
+        return True
+
+    def goto(self, url, timeout=30000, wait_until="domcontentloaded"):
+        self.goto_urls.append(url)
+
+    def wait_for_load_state(self, state, timeout=5000):
+        pass
+
+    def page_has_challenge(self):
+        return False
+
+    def content(self):
+        return self._html
+
+
+def test_cloudflare_warmup_does_not_succeed_on_blank_page():
+    session = _BlankWarmupSession()
+
+    ok, message = perform_cloudflare_warmup(session, timeout_ms=50)
+
+    assert ok is False
+    assert "页面未加载完成" in message
+    assert session.goto_urls == [BASE_URL]
+
+
+def test_cloudflare_warmup_confirms_search_page_before_success():
+    session = _BlankWarmupSession(
+        '<html><body><a href="/novel/1/catalog">linovelib 小说搜索入口</a></body></html>'
+    )
+
+    ok, message = perform_cloudflare_warmup(session, timeout_ms=50)
+
+    assert ok is True
+    assert "验证成功完成" in message
+    assert session.goto_urls == [BASE_URL, f"{BASE_URL}/S6/"]

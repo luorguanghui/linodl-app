@@ -1,4 +1,18 @@
+import re
+
 import customtkinter as ctk
+
+from .. import style
+
+
+def parse_progress_message(message: str):
+    match = re.search(r"\[(\d+)/(\d+)\]", message)
+    if not match:
+        return None
+    current, total = int(match.group(1)), int(match.group(2))
+    if total <= 0:
+        return None
+    return current, total
 
 
 class ProgressArea(ctk.CTkFrame):
@@ -6,6 +20,7 @@ class ProgressArea(ctk.CTkFrame):
         super().__init__(parent, **kwargs)
 
         self._on_cancel = on_cancel
+        self._total = 100
 
         self._status_label = ctk.CTkLabel(self, text="就绪", anchor="w")
         self._status_label.pack(fill="x", padx=8, pady=(8, 2))
@@ -18,7 +33,7 @@ class ProgressArea(ctk.CTkFrame):
         self._stats_label.pack(fill="x", padx=8, pady=2)
 
         self._cancel_btn = ctk.CTkButton(
-            self, text="取消", fg_color="#e74c3c", hover_color="#c0392b",
+            self, text="取消", fg_color=style.COLOR_DANGER, hover_color="#c92a2a",
             command=self._on_cancel_click, width=100
         )
         self._cancel_btn.pack(pady=(2, 8))
@@ -29,13 +44,19 @@ class ProgressArea(ctk.CTkFrame):
             self._on_cancel()
 
     def set_total(self, total: int):
-        self._progress_bar.configure(determinate_speed=1 / max(total, 1))
+        self._total = max(total, 1)
+        self._progress_bar.configure(mode="determinate")
+        self._progress_bar.set(0)
+        self._cancel_btn.configure(text="取消", state="normal")
 
     def update(self, current: int, message: str = "", stats: str = ""):
-        self._progress_bar.set(current / max(self._progress_bar.cget("determinate_speed") ** (-1), 1) if self._progress_bar.cget("mode") == "determinate" else 0)
-        ratio = current / max(getattr(self, '_total', 100), 1)
         if self._progress_bar.cget("mode") == "determinate":
-            self._progress_bar.set(ratio)
+            parsed = parse_progress_message(message)
+            if parsed:
+                current, total = parsed
+                self._total = total
+            ratio = current / max(self._total, 1)
+            self._progress_bar.set(max(0, min(ratio, 1)))
         if message:
             self._status_label.configure(text=message)
         if stats:

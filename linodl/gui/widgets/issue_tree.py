@@ -1,5 +1,7 @@
 import customtkinter as ctk
 
+from .. import style
+
 
 class IssueTree(ctk.CTkScrollableFrame):
     def __init__(self, parent, **kwargs):
@@ -9,7 +11,7 @@ class IssueTree(ctk.CTkScrollableFrame):
     def set_issues(self, issues):
         self.clear()
         if not issues:
-            label = ctk.CTkLabel(self, text="未发现问题。", text_color="green", anchor="w")
+            label = ctk.CTkLabel(self, text="未发现问题。", text_color=style.COLOR_SUCCESS, anchor="w")
             label.pack(fill="x", padx=8, pady=2)
             self._issue_labels.append(label)
             return
@@ -24,9 +26,9 @@ class IssueTree(ctk.CTkScrollableFrame):
 
         for issue in issues:
             color = {
-                "missing": "#e74c3c",
-                "empty": "#f39c12",
-                "truncated": "#3498db",
+                "missing": style.COLOR_DANGER,
+                "empty": style.COLOR_WARNING,
+                "truncated": style.COLOR_PRIMARY,
                 "image_missing": "#e67e22",
                 "image_corrupted": "#c0392b",
             }.get(issue.issue, "#95a5a6")

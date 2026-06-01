@@ -42,3 +42,20 @@ def test_config_manager_persists_network_and_antibot_settings(tmp_path: Path):
     assert reloaded.profile_dir == str(tmp_path / "profile")
     assert reloaded.proxy == "socks5://127.0.0.1:1080"
     assert reloaded.geoip is True
+
+
+def test_config_manager_persists_theme_setting(tmp_path: Path):
+    cfg = ConfigManager(str(tmp_path / ".linovelib.ini"))
+
+    cfg.theme = "dark"
+
+    reloaded = ConfigManager(str(tmp_path / ".linovelib.ini"))
+    assert reloaded.theme == "dark"
+
+
+def test_config_manager_rejects_unknown_theme(tmp_path: Path):
+    cfg = ConfigManager(str(tmp_path / ".linovelib.ini"))
+
+    cfg.theme = "sepia"
+
+    assert cfg.theme == "auto"

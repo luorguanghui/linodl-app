@@ -1,8 +1,9 @@
 import queue
+import re
 import threading
 
 from ..config.manager import ConfigManager
-from ..core.browser import BrowserSession
+from ..core.browser import BASE_URL, BrowserSession, is_cloudflare_challenge
 from ..core.search import SearchEngine
 from ..core.catalog import fetch_catalog, parse_catalog
 from ..core.auth import login, check_logged_in
@@ -268,6 +269,67 @@ class VerifyWorker(BackgroundWorker):
             self.report_done()
 
 
+def _warmup_page_is_ready(session) -> bool:
+    try:
+        html = session.content() or ""
+    except Exception:
+        return False
+    if is_cloudflare_challenge(html):
+        return False
+
+    text = re.sub(r"<[^>]+>", " ", html).strip()
+    compact_html = html.lower()
+    if len(text) >= 20:
+        return True
+    return any(marker in compact_html for marker in (
+        "linovelib",
+        "/novel/",
+        "/s6/",
+        "轻小说",
+        "小說",
+        "小说",
+    ))
+
+
+def perform_cloudflare_warmup(session, timeout_ms: int = 600000, progress_callback=None):
+    def progress(message: str):
+        if progress_callback:
+            progress_callback(message)
+
+    session.start(prefer_cloak=True)
+
+    progress("正在打开首页 — 请在浏览器窗口中完成人机验证...")
+    home_ok = session.navigate_with_challenge_retry(
+        BASE_URL, reason="Cloudflare 预热", timeout_ms=timeout_ms
+    )
+    if not home_ok:
+        return False, "Cloudflare 验证超时。"
+    if not _warmup_page_is_ready(session):
+        return False, "页面未加载完成，请重新点击预热并等待页面显示后再结束。"
+
+    search_url = f"{BASE_URL}/S6/"
+    progress("首页已通过，正在打开搜索页确认 profile 可复用...")
+    session.page.goto(search_url, timeout=45000, wait_until="domcontentloaded")
+    try:
+        session.page.wait_for_load_state("domcontentloaded", timeout=5000)
+    except Exception:
+        pass
+
+    if session.page_has_challenge():
+        progress("搜索页仍需要验证，请在浏览器窗口中完成验证...")
+        if not session.wait_for_challenge_clear(
+            "warmup-search",
+            timeout_ms=timeout_ms,
+            target_url=search_url,
+        ):
+            return False, "Cloudflare 验证超时。"
+
+    if not _warmup_page_is_ready(session):
+        return False, "搜索页未加载完成，请重新预热。"
+
+    return True, "Cloudflare 验证成功完成，浏览器档案已保存。"
+
+
 class WarmupWorker(BackgroundWorker):
     def __init__(self, config: ConfigManager, message_queue: queue.Queue):
         super().__init__(message_queue)
@@ -285,17 +347,15 @@ class WarmupWorker(BackgroundWorker):
                 profile_dir=self.config.profile_dir,
                 progress_callback=self.report_progress,
             )
-            session.start(prefer_cloak=True)
-
-            self.report_progress("正在打开首页 — 请在浏览器窗口中完成人机验证...")
-            from ..core.browser import BASE_URL
-            ok = session.navigate_with_challenge_retry(
-                BASE_URL, reason="Cloudflare 预热", timeout_ms=600000
+            ok, message = perform_cloudflare_warmup(
+                session,
+                timeout_ms=600000,
+                progress_callback=self.report_progress,
             )
             if ok:
-                self.report_result("Cloudflare 验证成功完成。")
+                self.report_result(message)
             else:
-                self.report_error("Cloudflare 验证超时。")
+                self.report_error(message)
         except Exception as e:
             self.report_error(str(e))
         finally:

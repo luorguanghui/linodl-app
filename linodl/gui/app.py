@@ -10,6 +10,7 @@ from .panels.settings_panel import SettingsPanel
 from .panels.verify_panel import VerifyPanel
 from .panels.export_panel import ExportPanel
 from .panels.warmup_panel import WarmupPanel
+from . import style
 
 PANEL_SEARCH = "search"
 PANEL_DOWNLOAD = "download"
@@ -43,12 +44,7 @@ class MainWindow(ctk.CTk):
         self.minsize(800, 600)
 
         theme = self._config.theme
-        if theme == "dark":
-            ctk.set_appearance_mode("dark")
-        elif theme == "light":
-            ctk.set_appearance_mode("light")
-        else:
-            ctk.set_appearance_mode("system")
+        style.apply_appearance(theme)
 
         ctk.set_default_color_theme("blue")
 
@@ -62,12 +58,12 @@ class MainWindow(ctk.CTk):
 
         ctk.CTkLabel(
             self._sidebar, text="linodl",
-            font=ctk.CTkFont(size=20, weight="bold")
+            font=style.title_font()
         ).pack(pady=(16, 4))
 
         ctk.CTkLabel(
             self._sidebar, text="小说下载器",
-            text_color="gray", font=ctk.CTkFont(size=11)
+            text_color=style.COLOR_MUTED, font=ctk.CTkFont(size=11)
         ).pack(pady=(0, 16))
 
         nav_buttons = [
@@ -85,7 +81,7 @@ class MainWindow(ctk.CTk):
                 self._sidebar, text=label, anchor="w",
                 command=lambda n=name: self.show_panel(n),
                 fg_color="transparent", text_color=("gray10", "gray90"),
-                hover_color=("gray70", "gray30"), height=36
+                hover_color=style.COLOR_CARD_HOVER, height=36
             )
             btn.pack(fill="x", padx=8, pady=2)
             self._nav_btns[name] = btn
@@ -119,20 +115,31 @@ class MainWindow(ctk.CTk):
                 self._content_frame, self._config, self._queue,
                 on_novel_selected=self._on_novel_selected,
                 on_url_download=self._on_url_download,
+                set_active_panel=self._set_active_panel,
             )
         elif name == PANEL_DOWNLOAD:
             panel = DownloadPanel(
                 self._content_frame, self._config, self._queue,
                 show_search=lambda: self.show_panel(PANEL_SEARCH),
+                set_active_panel=self._set_active_panel,
             )
         elif name == PANEL_SETTINGS:
             panel = SettingsPanel(self._content_frame, self._config, self._queue)
         elif name == PANEL_VERIFY:
-            panel = VerifyPanel(self._content_frame, self._config, self._queue)
+            panel = VerifyPanel(
+                self._content_frame, self._config, self._queue,
+                set_active_panel=self._set_active_panel,
+            )
         elif name == PANEL_EXPORT:
-            panel = ExportPanel(self._content_frame, self._config, self._queue)
+            panel = ExportPanel(
+                self._content_frame, self._config, self._queue,
+                set_active_panel=self._set_active_panel,
+            )
         elif name == PANEL_WARMUP:
-            panel = WarmupPanel(self._content_frame, self._config, self._queue)
+            panel = WarmupPanel(
+                self._content_frame, self._config, self._queue,
+                set_active_panel=self._set_active_panel,
+            )
         else:
             return
 
@@ -142,9 +149,12 @@ class MainWindow(ctk.CTk):
 
         for btn_name, btn in self._nav_btns.items():
             if btn_name == name:
-                btn.configure(fg_color=("gray75", "gray25"))
+                btn.configure(fg_color=style.COLOR_SIDEBAR_ACTIVE)
             else:
                 btn.configure(fg_color="transparent")
+
+    def _set_active_panel(self, panel):
+        self._active_worker_panel = panel
 
     def _on_novel_selected(self, novel: NovelInfo):
         self.show_panel(PANEL_DOWNLOAD)
@@ -173,7 +183,7 @@ class MainWindow(ctk.CTk):
 
     def _dispatch(self, msg_type: str, data):
         if msg_type == "progress":
-            self._status_label.configure(text=str(data)[:120])
+            self._status_label.configure(text=str(data)[:120], text_color="gray")
             if self._active_worker_panel and hasattr(self._active_worker_panel, "on_progress"):
                 self._active_worker_panel.on_progress(str(data))
 
@@ -196,9 +206,11 @@ class MainWindow(ctk.CTk):
     def _dispatch_result(self, data):
         panel = self._active_worker_panel
 
-        if isinstance(data, list) and all(isinstance(x, NovelInfo) for x in data):
-            if hasattr(panel, "on_search_complete"):
+        if isinstance(data, list):
+            if hasattr(panel, "on_search_complete") and all(isinstance(x, NovelInfo) for x in data):
                 panel.on_search_complete(data)
+            elif hasattr(panel, "on_export_result") and all(isinstance(x, str) for x in data):
+                panel.on_export_result(data)
 
         elif isinstance(data, tuple) and len(data) == 2:
             volumes, novel_info = data
@@ -213,13 +225,8 @@ class MainWindow(ctk.CTk):
             if hasattr(panel, "on_verify_result"):
                 panel.on_verify_result(data)
 
-        elif isinstance(data, (str, list)):
-            if isinstance(data, str):
-                if hasattr(panel, "on_export_result"):
-                    self._try_export_or_warmup_result(panel, data)
-            elif isinstance(data, list) and all(isinstance(x, str) for x in data):
-                if hasattr(panel, "on_export_result"):
-                    panel.on_export_result(data)
+        elif isinstance(data, str):
+            self._try_export_or_warmup_result(panel, data)
 
     def _try_export_or_warmup_result(self, panel, data: str):
         if hasattr(panel, "on_result"):

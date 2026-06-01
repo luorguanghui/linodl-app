@@ -152,4 +152,13 @@ class ConfigManager:
 
     @property
     def theme(self) -> str:
-        return self._cfg.get("ui", "theme", fallback="auto")
+        value = self._cfg.get("ui", "theme", fallback="auto").strip().lower()
+        return value if value in {"auto", "light", "dark"} else "auto"
+
+    @theme.setter
+    def theme(self, value: str):
+        value = value.strip().lower()
+        if value not in {"auto", "light", "dark"}:
+            value = "auto"
+        self._cfg.set("ui", "theme", value)
+        self._save()
