@@ -14,6 +14,14 @@ _VENDOR_DIR = str(Path(__file__).resolve().parent.parent.parent / "vendor")
 if _VENDOR_DIR not in sys.path:
     sys.path.insert(0, _VENDOR_DIR)
 
+# If a system-installed cloakbrowser was already imported, reload from vendor.
+_vendor_init = os.path.join(_VENDOR_DIR, "cloakbrowser", "__init__.py")
+if "cloakbrowser" in sys.modules:
+    _mod = sys.modules["cloakbrowser"]
+    _mod_file = getattr(_mod, "__file__", "") or ""
+    if os.path.normpath(_mod_file) != os.path.normpath(_vendor_init):
+        del sys.modules["cloakbrowser"]
+
 
 BASE_URL = "https://www.linovelib.com"
 DEFAULT_USER_AGENT = (
