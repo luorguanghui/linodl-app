@@ -130,7 +130,7 @@ class DownloadPanel(ctk.CTkFrame):
             var = ctk.BooleanVar(value=False)
             label = f"{vol.name}  ({vol.text_count} 章"
             if vol.illus_count:
-                label += f", {vol.illus_count} 插图"
+                label += ", 含插图"
             label += ")"
 
             cb = ctk.CTkCheckBox(self._volume_frame, text=label, variable=var)
