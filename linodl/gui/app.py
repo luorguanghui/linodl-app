@@ -29,6 +29,7 @@ class MainWindow(ctk.CTk):
         self._current_panel_name = None
         self._current_panel = None
         self._active_worker_panel = None
+        self._panels = {}  # cache: name -> panel instance
 
         self._setup_window()
         self._build_sidebar()
@@ -103,45 +104,71 @@ class MainWindow(ctk.CTk):
         )
         self._status_label.pack(side="left", padx=12, pady=2)
 
-    def show_panel(self, name: str):
-        if self._current_panel_name == name and self._current_panel is not None:
-            return
+    def _is_panel_busy(self, panel) -> bool:
+        """Return True if the panel has a running background worker."""
+        return (
+            panel is not None
+            and panel is self._active_worker_panel
+            and hasattr(panel, "_worker")
+            and panel._worker is not None
+            and panel._worker.is_alive()
+        )
 
-        if self._current_panel is not None:
-            self._current_panel.pack_forget()
-
+    def _create_panel(self, name: str):
+        """Create a panel instance for the given name."""
         if name == PANEL_SEARCH:
-            panel = SearchPanel(
+            return SearchPanel(
                 self._content_frame, self._config, self._queue,
                 on_novel_selected=self._on_novel_selected,
                 on_url_download=self._on_url_download,
                 set_active_panel=self._set_active_panel,
             )
         elif name == PANEL_DOWNLOAD:
-            panel = DownloadPanel(
+            return DownloadPanel(
                 self._content_frame, self._config, self._queue,
                 show_search=lambda: self.show_panel(PANEL_SEARCH),
                 set_active_panel=self._set_active_panel,
             )
         elif name == PANEL_SETTINGS:
-            panel = SettingsPanel(self._content_frame, self._config, self._queue)
+            return SettingsPanel(self._content_frame, self._config, self._queue)
         elif name == PANEL_VERIFY:
-            panel = VerifyPanel(
+            return VerifyPanel(
                 self._content_frame, self._config, self._queue,
                 set_active_panel=self._set_active_panel,
             )
         elif name == PANEL_EXPORT:
-            panel = ExportPanel(
+            return ExportPanel(
                 self._content_frame, self._config, self._queue,
                 set_active_panel=self._set_active_panel,
             )
         elif name == PANEL_WARMUP:
-            panel = WarmupPanel(
+            return WarmupPanel(
                 self._content_frame, self._config, self._queue,
                 set_active_panel=self._set_active_panel,
             )
-        else:
+        return None
+
+    def show_panel(self, name: str):
+        if self._current_panel_name == name and self._current_panel is not None:
             return
+
+        # Block switching away from a panel that has a running worker.
+        if self._is_panel_busy(self._current_panel):
+            self._status_label.configure(
+                text="⚠ 当前有任务正在运行，请等待完成后再切换。", text_color="#f39c12"
+            )
+            return
+
+        if self._current_panel is not None:
+            self._current_panel.pack_forget()
+
+        # Reuse cached panel or create a new one.
+        panel = self._panels.get(name)
+        if panel is None:
+            panel = self._create_panel(name)
+            if panel is None:
+                return
+            self._panels[name] = panel
 
         panel.pack(fill="both", expand=True)
         self._current_panel = panel
@@ -160,12 +187,10 @@ class MainWindow(ctk.CTk):
         self.show_panel(PANEL_DOWNLOAD)
         if not novel.catalog_url:
             novel.catalog_url = f"https://www.linovelib.com/novel/{novel.novel_id}/catalog"
-        self._active_worker_panel = self._current_panel
         self._current_panel.load_catalog(novel.catalog_url)
 
     def _on_url_download(self, url: str):
         self.show_panel(PANEL_DOWNLOAD)
-        self._active_worker_panel = self._current_panel
         self._current_panel.load_catalog(url)
 
     def run(self):
