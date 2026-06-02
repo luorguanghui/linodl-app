@@ -14,6 +14,8 @@ def sanitize(name):
 
 def normalize_catalog_url(url: str) -> str:
     """Convert a novel detail page URL to a catalog URL."""
+    if not url:
+        return ""
     m = re.match(rf"{re.escape(BASE_URL)}/novel/(\d+)(?:/catalog|/|\.html)?$", url.rstrip("/"))
     if m:
         return f"{BASE_URL}/novel/{m.group(1)}/catalog"

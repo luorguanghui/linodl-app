@@ -94,6 +94,11 @@ class DownloadPanel(ctk.CTkFrame):
             return
 
         url = url_or_novel_info
+        if not url:
+            self._clear_all()
+            self._show_empty_catalog()
+            return
+
         self._clear_all()
         self._title_label.configure(text="正在获取目录...")
         self._author_label.configure(text=url)

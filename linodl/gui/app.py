@@ -158,7 +158,6 @@ class MainWindow(ctk.CTk):
 
     def _on_novel_selected(self, novel: NovelInfo):
         self.show_panel(PANEL_DOWNLOAD)
-        self._current_panel.load_catalog(None, None)
         if not novel.catalog_url:
             novel.catalog_url = f"https://www.linovelib.com/novel/{novel.novel_id}/catalog"
         self._active_worker_panel = self._current_panel
