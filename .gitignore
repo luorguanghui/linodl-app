@@ -23,3 +23,4 @@ debug_*.html
 Thumbs.db
 .vscode/
 .idea/
+debug_results*.json
