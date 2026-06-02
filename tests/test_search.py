@@ -148,3 +148,16 @@ def test_parse_results_filters_all_generic_ui_labels():
         engine = SearchEngine()
         results = engine._parse_results(html)
         assert results[0].title == "", f"'{label}' should not be a title"
+
+
+def test_parse_results_extracts_title_through_hot_span_tags():
+    """Regression: titles with <span class='hot'> keyword highlighting lose text."""
+    html = """
+    <a href="/novel/4993.html">因为转生成了勇者青梅竹马的<span class="hot">败犬女角</span>，所以要转职成为药剂师</a>
+    """
+    engine = SearchEngine()
+    results = engine._parse_results(html)
+
+    assert len(results) == 1
+    assert "败犬女角" in results[0].title
+    assert results[0].novel_id == "4993"

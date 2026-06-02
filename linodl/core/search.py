@@ -343,10 +343,11 @@ class SearchEngine:
             title_match = re.search(r"<h3[^>]*>([^<]+)</h3>", inner)
             if title_match:
                 novel.title = title_match.group(1).strip()
-            elif not novel.title and not re.search(r"<[^>]+>", inner):
-                title = inner.strip()
-                if title and not _UI_LABELS.match(title):
-                    novel.title = title
+            elif not novel.title:
+                # Strip HTML tags (e.g. <span class="hot">) and use text as title.
+                plain = re.sub(r"<[^>]+>", "", inner).strip()
+                if plain and len(plain) > 1 and not _UI_LABELS.match(plain):
+                    novel.title = plain
 
         if not results:
             list_items = re.findall(
