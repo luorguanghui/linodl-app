@@ -24,8 +24,9 @@
 - `run.bat`  
   Windows 启动脚本，安装依赖后运行 `python -m linodl %*`。
 
-- `requirements.txt`  
-  当前包含 `cloudscraper`、`playwright`、`cloakbrowser`、`rich`、`ebooklib`、`pytest`。
+- `requirements.txt`
+  当前包含 `cloudscraper`、`playwright`、`httpx`、`rich`、`ebooklib`、`pytest`。
+  CloakBrowser 已内嵌至 `vendor/cloakbrowser/`，无需单独安装。
 
 - `linodl/__main__.py`  
   批处理 CLI 入口。支持：

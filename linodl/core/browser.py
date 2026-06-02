@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import sys
 import time
 from pathlib import Path
 from typing import Callable
+
+# Use vendored cloakbrowser instead of system-installed version.
+_VENDOR_DIR = str(Path(__file__).resolve().parent.parent.parent / "vendor")
+if _VENDOR_DIR not in sys.path:
+    sys.path.insert(0, _VENDOR_DIR)
 
 
 BASE_URL = "https://www.linovelib.com"
@@ -312,24 +318,19 @@ class BrowserSession:
         self._set_default_page()
 
     def _start_cloak(self):
-        try:
-            from cloakbrowser import launch_persistent_context
-        except ImportError as exc:
-            raise RuntimeError(
-                "CloakBrowser is not installed. Run: pip install -r requirements.txt"
-            ) from exc
+        from cloakbrowser import launch_persistent_context
 
         profile_path = self._profile_path("cloak")
-        import hashlib
-        fingerprint_seed = str(int(hashlib.md5(profile_path.encode()).hexdigest()[:8], 16) % 90000 + 10000)
-
-        args = [f"--fingerprint={fingerprint_seed}"]
+        # Deterministic fingerprint seed per profile path for consistency.
+        fingerprint_seed = str(
+            int(hashlib.md5(profile_path.encode()).hexdigest()[:8], 16) % 90000 + 10000
+        )
 
         kwargs = {
             "headless": self.headless,
             "viewport": DEFAULT_VIEWPORT,
             "locale": "zh-CN",
-            "args": args,
+            "args": [f"--fingerprint={fingerprint_seed}"],
             "humanize": True,
             "human_preset": "careful",
         }
@@ -341,6 +342,7 @@ class BrowserSession:
         try:
             self.context = launch_persistent_context(profile_path, **kwargs)
         except TypeError:
+            # Older CloakBrowser versions don't support humanize.
             kwargs.pop("humanize", None)
             kwargs.pop("human_preset", None)
             self._report(
