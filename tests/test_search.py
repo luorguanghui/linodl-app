@@ -120,3 +120,31 @@ def test_browser_form_replays_search_after_challenge_with_home_target(monkeypatc
     assert engine._try_browser_form("Direct").startswith('<a href="/novel/1.html">Direct Hit</a>')
     assert calls == ["open", "submit:Direct"]
     assert session.wait_target_urls == [""]
+
+
+def test_parse_results_does_not_overwrite_title_with_ui_label():
+    """Regression: search results should not show '书籍详情' as the novel title.
+
+    The site renders multiple <a href="/novel/{id}.html"> per result card.
+    A later '书籍详情' button link was overwriting the correctly-parsed title.
+    """
+    html = """
+    <a href="/novel/123.html"><img src="cover.jpg"></a>
+    <h3><a href="/novel/123.html">真正的书名</a></h3>
+    <a href="/novel/123.html">书籍详情</a>
+    """
+    engine = SearchEngine()
+    results = engine._parse_results(html)
+
+    assert len(results) == 1
+    assert results[0].title == "真正的书名"
+    assert results[0].novel_id == "123"
+
+
+def test_parse_results_filters_all_generic_ui_labels():
+    """No generic UI label should survive as a title."""
+    for label in ["书籍详情", "查看详情", "立即阅读", "开始阅读"]:
+        html = f'<a href="/novel/999.html">{label}</a>'
+        engine = SearchEngine()
+        results = engine._parse_results(html)
+        assert results[0].title == "", f"'{label}' should not be a title"

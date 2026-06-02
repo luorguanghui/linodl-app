@@ -324,6 +324,11 @@ class SearchEngine:
         results = []
         by_id = {}
 
+        # Generic UI labels that should NOT be treated as novel titles.
+        _UI_LABELS = re.compile(
+            r"^(书籍详情|查看详情|立即阅读|开始阅读|阅读原文|查看全文|更多详情|查看详情页|点击阅读)$"
+        )
+
         novel_blocks = re.findall(
             r'<a[^>]*href="(/novel/(\d+)\.html)"[^>]*>(.*?)</a>',
             html,
@@ -338,9 +343,9 @@ class SearchEngine:
             title_match = re.search(r"<h3[^>]*>([^<]+)</h3>", inner)
             if title_match:
                 novel.title = title_match.group(1).strip()
-            elif not re.search(r"<[^>]+>", inner):
+            elif not novel.title and not re.search(r"<[^>]+>", inner):
                 title = inner.strip()
-                if title:
+                if title and not _UI_LABELS.match(title):
                     novel.title = title
 
         if not results:
