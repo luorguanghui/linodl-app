@@ -182,6 +182,9 @@ class DownloadPanel(ctk.CTkFrame):
         self._downloader = downloader
         self._progress_area.pack_forget()
 
+        # Hide volume list and action bar to give results full space.
+        self._volume_frame.pack_forget()
+
         summary = f"下载完成 — {result.novel_title}\n"
         summary += f"成功: {result.success}  |  跳过: {result.skipped}  |  失败: {result.failed}"
         if result.failed > 0:
@@ -254,6 +257,8 @@ class DownloadPanel(ctk.CTkFrame):
         self._retry_btn.pack_forget()
         self._export_btn.pack_forget()
         self._issue_tree.clear()
+        # Restore volume list visibility.
+        self._volume_frame.pack(fill="both", expand=True, padx=style.PAD_X, pady=4)
 
     def _clear_all(self):
         self._clear_volume_widgets()

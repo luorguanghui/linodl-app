@@ -4,6 +4,7 @@ import msvcrt
 import os
 import re
 import sys
+import time
 
 from rich.console import Console
 from rich.panel import Panel
@@ -682,9 +683,8 @@ class App:
         self.console.print()
         self.console.print("[bold]请按以下步骤操作：[/bold]")
         self.console.print("  1. 在弹出的 CloakBrowser 窗口中完成「验证您是真人」")
-        self.console.print("  2. 验证通过后会继续导航到搜索页")
-        self.console.print("  3. 完成后不要关闭浏览器窗口，程序会自动保存 profile")
-        self.console.print("  4. [dim]最长等待 5 分钟[/dim]")
+        self.console.print("  2. 完成后不要关闭浏览器窗口，程序会自动保存 profile")
+        self.console.print("  3. [dim]最长等待 5 分钟[/dim]")
         self.console.print()
 
         session = BrowserSession(
@@ -693,29 +693,47 @@ class App:
             proxy=self.config.proxy,
             geoip=self.config.geoip,
             profile_dir=self.config.profile_dir,
+            humanize=False,
         )
         try:
             session.start()
+            session._clear_cloudflare_cookies()
             session.navigate_with_challenge_retry(
                 "https://www.linovelib.com", "warmup-home", timeout_ms=300000
             )
-            self.console.print("[green]✓ 首页验证通过[/green]")
+            if session._has_cloudflare_clearance():
+                self.console.print("[green]✓ 首页验证通过[/green]")
+            else:
+                self.console.print("[yellow]请在 CloakBrowser 窗口中点击「验证您是真人」...[/yellow]")
+                deadline = time.time() + 300
+                while time.time() < deadline:
+                    time.sleep(1)
+                    if session._has_cloudflare_clearance():
+                        break
+                if session._has_cloudflare_clearance():
+                    self.console.print("[green]✓ 首页验证通过[/green]")
+                else:
+                    self.console.print("[yellow]⚠ cookie 未保存，已继续[/yellow]")
 
-            session.page.goto(
-                "https://www.linovelib.com/S6/", timeout=45000, wait_until="domcontentloaded"
+            search_ok = session.navigate_with_challenge_retry(
+                "https://www.linovelib.com/S6/", "warmup-search", timeout_ms=60000
             )
-            try:
-                session.page.wait_for_load_state("domcontentloaded", timeout=5000)
-            except Exception:
-                pass
-            if session.page_has_challenge():
-                self.console.print("[yellow]搜索页仍需要验证，请在浏览器中完成...[/yellow]")
-                if session.wait_for_challenge_clear("warmup-search"):
+            if search_ok:
+                if session._has_cloudflare_clearance():
                     self.console.print("[green]✓ 搜索页验证通过[/green]")
                 else:
-                    self.console.print("[yellow]⚠ 搜索页验证超时，已保存当前 profile[/yellow]")
+                    self.console.print("[yellow]请在 CloakBrowser 窗口中完成验证...[/yellow]")
+                    deadline = time.time() + 300
+                    while time.time() < deadline:
+                        time.sleep(1)
+                        if session._has_cloudflare_clearance():
+                            break
+                    if session._has_cloudflare_clearance():
+                        self.console.print("[green]✓ 搜索页验证通过[/green]")
+                    else:
+                        self.console.print("[yellow]⚠ cookie 未保存，已继续[/yellow]")
             else:
-                self.console.print("[green]✓ 搜索页访问成功[/green]")
+                self.console.print("[yellow]⚠ 搜索页验证超时，已保存当前 profile[/yellow]")
 
             self.console.print()
             self.console.print(f"[green]Profile 已保存到: {self.config.profile_dir}\\cloak[/green]")

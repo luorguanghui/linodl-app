@@ -1,6 +1,7 @@
 import queue
 import re
 import threading
+import time
 
 from ..config.manager import ConfigManager
 from ..core.browser import BASE_URL, BrowserSession, is_cloudflare_challenge
@@ -291,12 +292,80 @@ def _warmup_page_is_ready(session) -> bool:
     ))
 
 
+def _page_has_content(session) -> bool:
+    """Check if the page has loaded meaningful content.
+
+    Returns False for CF challenge pages even if they have text, since
+    challenge pages (e.g. "Just a moment...") are not real content."""
+    try:
+        html = session.content() or ""
+    except Exception:
+        return False
+    if is_cloudflare_challenge(html):
+        return False
+    text = re.sub(r"<[^>]+>", " ", html).strip()
+    if len(text) >= 20:
+        return True
+    compact_html = html.lower()
+    return any(marker in compact_html for marker in (
+        "linovelib",
+        "/novel/",
+        "/s6/",
+        "轻小说",
+        "小說",
+        "小说",
+    ))
+
+
+def _wait_for_page_ready(session, retries: int = 5, delay: float = 1.0) -> bool:
+    """Wait for page content to render after navigation.
+
+    After domcontentloaded the JS-rendered content may still be loading.
+    We wait for networkidle briefly, then retry."""
+    for i in range(retries):
+        if _page_has_content(session):
+            return True
+        if i < retries - 1:
+            try:
+                session.page.wait_for_load_state("networkidle", timeout=3000)
+            except Exception:
+                pass
+            time.sleep(delay)
+    return False
+
+
+def _wait_for_clearance_cookie(session, timeout_ms: int, progress_callback=None) -> bool:
+    """Wait for the cf_clearance cookie to be set.
+
+    If Turnstile auto-resolves without user interaction, the clearance cookie
+    may not be set. In that case we prompt the user to manually complete
+    verification so the cookie is saved to the profile."""
+    if session._has_cloudflare_clearance():
+        return True
+
+    def _report(msg):
+        if progress_callback:
+            progress_callback(msg)
+
+    _report(
+        "验证已通过但 cookie 尚未保存，请在 CloakBrowser 窗口中\n"
+        "点击「验证您是真人」完成人机验证，程序会自动继续。"
+    )
+    deadline = time.time() + timeout_ms / 1000
+    while time.time() < deadline:
+        time.sleep(1)
+        if session._has_cloudflare_clearance():
+            return True
+    return False
+
+
 def perform_cloudflare_warmup(session, timeout_ms: int = 600000, progress_callback=None):
     def progress(message: str):
         if progress_callback:
             progress_callback(message)
 
     session.start(prefer_cloak=True)
+    session._clear_cloudflare_cookies()
 
     progress("正在打开首页 — 请在浏览器窗口中完成人机验证...")
     home_ok = session.navigate_with_challenge_retry(
@@ -304,27 +373,23 @@ def perform_cloudflare_warmup(session, timeout_ms: int = 600000, progress_callba
     )
     if not home_ok:
         return False, "Cloudflare 验证超时。"
-    if not _warmup_page_is_ready(session):
+    if not _wait_for_page_ready(session):
         return False, "页面未加载完成，请重新点击预热并等待页面显示后再结束。"
+    if not _wait_for_clearance_cookie(session, timeout_ms, progress):
+        return False, "首页验证 cookie 未保存，请重新预热并手动完成人机验证。"
 
     search_url = f"{BASE_URL}/S6/"
-    progress("首页已通过，正在打开搜索页确认 profile 可复用...")
-    session.page.goto(search_url, timeout=45000, wait_until="domcontentloaded")
+    progress("首页已通过，正在尝试打开搜索页确认 profile 可复用...")
     try:
-        session.page.wait_for_load_state("domcontentloaded", timeout=5000)
+        search_ok = session.navigate_with_challenge_retry(
+            search_url, reason="搜索页", timeout_ms=60000
+        )
+        if search_ok and _wait_for_page_ready(session):
+            progress("搜索页验证通过，profile 可正常复用。")
+        else:
+            progress("搜索页验证跳过（不影响预热结果），浏览器档案已保存。")
     except Exception:
-        pass
-
-    if session.page_has_challenge():
-        progress("搜索页仍需要验证，请在浏览器窗口中完成验证...")
-        if not session.wait_for_challenge_clear(
-            "warmup-search",
-            timeout_ms=timeout_ms,
-        ):
-            return False, "Cloudflare 验证超时。"
-
-    if not _warmup_page_is_ready(session):
-        return False, "搜索页未加载完成，请重新预热。"
+        progress("搜索页验证跳过（不影响预热结果），浏览器档案已保存。")
 
     return True, "Cloudflare 验证成功完成，浏览器档案已保存。"
 
@@ -345,6 +410,7 @@ class WarmupWorker(BackgroundWorker):
                 geoip=self.config.geoip,
                 profile_dir=self.config.profile_dir,
                 progress_callback=self.report_progress,
+                humanize=False,
             )
             ok, message = perform_cloudflare_warmup(
                 session,

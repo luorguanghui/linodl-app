@@ -40,9 +40,9 @@ class WarmupPanel(ctk.CTkFrame):
         # Progress bar
         self._progress_bar = ctk.CTkProgressBar(self, mode="indeterminate")
 
-        # Status label
-        self._status_label = ctk.CTkLabel(self, text="", text_color="gray")
-        self._status_label.pack(anchor="w", padx=style.PAD_X, pady=8)
+        # Status label -- with word wrap for long messages
+        self._status_label = ctk.CTkLabel(self, text="", text_color="gray", wraplength=600, justify="left")
+        self._status_label.pack(anchor="w", padx=style.PAD_X, pady=8, fill="x")
 
     def _start_warmup(self):
         self._start_btn.configure(state="disabled", text="正在预热...")

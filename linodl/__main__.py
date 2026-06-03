@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import time
 
 from .cli.app import App
 from .config.manager import ConfigManager
@@ -169,9 +170,8 @@ def _warmup_cloudflare(config: ConfigManager, console):
     console.print()
     console.print("[bold]请按以下步骤操作：[/bold]")
     console.print("  1. 在弹出的 CloakBrowser 窗口中完成「验证您是真人」")
-    console.print("  2. 验证通过后会继续导航到搜索页")
-    console.print("  3. 完成后不要关闭浏览器窗口，程序会自动保存 profile")
-    console.print("  4. [dim]最长等待 5 分钟[/dim]")
+    console.print("  2. 完成后不要关闭浏览器窗口，程序会自动保存 profile")
+    console.print("  3. [dim]最长等待 5 分钟[/dim]")
     console.print()
 
     session = BrowserSession(
@@ -180,29 +180,47 @@ def _warmup_cloudflare(config: ConfigManager, console):
         proxy=config.proxy,
         geoip=config.geoip,
         profile_dir=config.profile_dir,
+        humanize=False,
     )
     try:
         session.start()
+        session._clear_cloudflare_cookies()
         session.navigate_with_challenge_retry(
             "https://www.linovelib.com", "warmup-home", timeout_ms=300000
         )
-        console.print("[green]✓ 首页验证通过[/green]")
+        if session._has_cloudflare_clearance():
+            console.print("[green]✓ 首页验证通过[/green]")
+        else:
+            console.print("[yellow]请在 CloakBrowser 窗口中点击「验证您是真人」...[/yellow]")
+            deadline = time.time() + 300
+            while time.time() < deadline:
+                time.sleep(1)
+                if session._has_cloudflare_clearance():
+                    break
+            if session._has_cloudflare_clearance():
+                console.print("[green]✓ 首页验证通过[/green]")
+            else:
+                console.print("[yellow]⚠ cookie 未保存，已继续[/yellow]")
 
-        session.page.goto(
-            "https://www.linovelib.com/S6/", timeout=45000, wait_until="domcontentloaded"
+        search_ok = session.navigate_with_challenge_retry(
+            "https://www.linovelib.com/S6/", "warmup-search", timeout_ms=60000
         )
-        try:
-            session.page.wait_for_load_state("domcontentloaded", timeout=5000)
-        except Exception:
-            pass
-        if session.page_has_challenge():
-            console.print("[yellow]搜索页仍需要验证，请在浏览器中完成...[/yellow]")
-            if session.wait_for_challenge_clear("warmup-search"):
+        if search_ok:
+            if session._has_cloudflare_clearance():
                 console.print("[green]✓ 搜索页验证通过[/green]")
             else:
-                console.print("[yellow]⚠ 搜索页验证超时，已保存当前 profile[/yellow]")
+                console.print("[yellow]请在 CloakBrowser 窗口中完成验证...[/yellow]")
+                deadline = time.time() + 300
+                while time.time() < deadline:
+                    time.sleep(1)
+                    if session._has_cloudflare_clearance():
+                        break
+                if session._has_cloudflare_clearance():
+                    console.print("[green]✓ 搜索页验证通过[/green]")
+                else:
+                    console.print("[yellow]⚠ cookie 未保存，已继续[/yellow]")
         else:
-            console.print("[green]✓ 搜索页访问成功[/green]")
+            console.print("[yellow]⚠ 搜索页验证超时，已保存当前 profile[/yellow]")
 
         console.print()
         console.print(f"[green]Profile 已保存到: {config.profile_dir}\\cloak[/green]")

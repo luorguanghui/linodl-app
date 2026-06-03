@@ -74,6 +74,7 @@ class BrowserSession:
         geoip: bool = False,
         profile_dir: str = "",
         progress_callback: Callable[[str], None] | None = None,
+        humanize: bool = True,
     ):
         self.headless = headless
         self.anti_bot_mode = anti_bot_mode if anti_bot_mode in {"auto", "playwright", "cloak"} else "auto"
@@ -81,6 +82,7 @@ class BrowserSession:
         self.geoip = geoip
         self.profile_dir = profile_dir or str(Path.home() / ".linodl-browser")
         self.progress_callback = progress_callback
+        self.humanize = humanize
 
         self.engine = ""
         self._playwright = None
@@ -160,11 +162,35 @@ class BrowserSession:
 
         Returns True once the page loads without a challenge."""
         self.start()
-        self.page.goto(url, timeout=30000, wait_until="domcontentloaded")
-        try:
-            self.page.wait_for_load_state("domcontentloaded", timeout=5000)
-        except Exception:
-            pass
+
+        # Try initial navigation with retry on failure.
+        loaded = False
+        for attempt in range(3):
+            try:
+                wait = "domcontentloaded" if attempt < 2 else "commit"
+                timeout = 30000 if attempt == 0 else (45000 if attempt == 1 else 60000)
+                self.page.goto(url, timeout=timeout, wait_until=wait)
+                if wait == "domcontentloaded":
+                    try:
+                        self.page.wait_for_load_state("domcontentloaded", timeout=5000)
+                    except Exception:
+                        pass
+                loaded = True
+                break
+            except Exception as exc:
+                self._report(
+                    f"navigation attempt {attempt + 1} failed: {exc}"
+                    f"{f' ({reason})' if reason else ''}"
+                )
+                if attempt < 2:
+                    time.sleep(2)
+
+        if not loaded:
+            self._report(
+                f"navigation failed after retries: {url}"
+                f"{f' ({reason})' if reason else ''}"
+            )
+            return False
 
         if not self.page_has_challenge():
             return True
@@ -230,24 +256,28 @@ class BrowserSession:
         if self.engine != "cloak":
             return False
 
+        # Brief pause to let challenge page fully render before checking cookies.
+        time.sleep(2)
+
+        # Try reopening once if a valid clearance cookie already exists.
         if self._reopen_target_after_clearance(target_url, reason):
             return True
 
-        self._report(
-            "cloudflare_retry: CloakBrowser 正在尝试自动通过验证..."
-            f"{f' ({reason})' if reason else ''}"
-        )
-        auto_deadline = time.time() + 15
-        while time.time() < auto_deadline:
-            time.sleep(poll_ms / 1000)
-            try:
-                if not self.page_has_challenge():
-                    self._report("cloudflare_retry: auto-resolved verification")
-                    return True
-                if self._reopen_target_after_clearance(target_url, reason):
-                    return True
-            except Exception:
-                pass
+        # When humanize is enabled, wait briefly for auto-resolve first.
+        if self.humanize:
+            self._report(
+                "cloudflare_retry: CloakBrowser 正在尝试自动通过验证..."
+                f"{f' ({reason})' if reason else ''}"
+            )
+            auto_deadline = time.time() + 15
+            while time.time() < auto_deadline:
+                time.sleep(poll_ms / 1000)
+                try:
+                    if not self.page_has_challenge():
+                        self._report("cloudflare_retry: auto-resolved verification")
+                        return True
+                except Exception:
+                    pass
 
         self._report(
             "cloudflare_retry: 请在 CloakBrowser 窗口中点击「验证您是真人」\n"
@@ -260,9 +290,13 @@ class BrowserSession:
             try:
                 if not self.page_has_challenge():
                     self._report("cloudflare_retry: verification passed")
-                    return True
-                if self._reopen_target_after_clearance(target_url, reason):
-                    self._report("cloudflare_retry: verification passed")
+                    # Navigate to target URL after verification so the saved
+                    # profile picks up the new clearance cookie.
+                    if target_url:
+                        try:
+                            self.page.goto(target_url, timeout=45000, wait_until="domcontentloaded")
+                        except Exception:
+                            pass
                     return True
             except Exception:
                 pass
@@ -283,6 +317,27 @@ class BrowserSession:
         except Exception:
             return False
         return any((cookie.get("name") or "").lower() == "cf_clearance" for cookie in cookies)
+
+    def _clear_cloudflare_cookies(self) -> None:
+        """Remove stale cf_clearance cookies so a fresh challenge is triggered."""
+        if not self.context:
+            return
+        try:
+            cookies = self.context.cookies(BASE_URL)
+        except TypeError:
+            cookies = self.context.cookies()
+        except Exception:
+            return
+        stale = [c for c in cookies if (c.get("name") or "").lower() == "cf_clearance"]
+        if stale:
+            remaining = [c for c in cookies if (c.get("name") or "").lower() != "cf_clearance"]
+            try:
+                self.context.clear_cookies()
+                for c in remaining:
+                    self.context.add_cookies([c])
+            except Exception:
+                pass
+            self._report("cloudflare_retry: cleared stale cf_clearance cookie")
 
     def _reopen_target_after_clearance(self, target_url: str | None, reason: str = "") -> bool:
         if not target_url or not self._has_cloudflare_clearance():
@@ -339,7 +394,7 @@ class BrowserSession:
             "viewport": DEFAULT_VIEWPORT,
             "locale": "zh-CN",
             "args": [f"--fingerprint={fingerprint_seed}"],
-            "humanize": True,
+            "humanize": self.humanize,
             "human_preset": "careful",
         }
         if self.proxy:
