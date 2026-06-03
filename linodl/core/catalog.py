@@ -115,19 +115,39 @@ def parse_catalog(html: str):
 
         volume = Volume(name=vol_name)
         text_idx = 0
-        last_chapter_id = None
         novel_id_match = re.search(r'/novel/(\d+)/', block)
         novel_id = novel_id_match.group(1) if novel_id_match else None
 
-        # Pre-scan: find the first valid chapter ID for inferring URLs at the start
-        first_valid_id = None
-        for url, _ in chapters:
-            id_match = re.match(r'/novel/\d+/(\d+)\.html$', url)
-            if id_match:
-                first_valid_id = int(id_match.group(1))
-                break
+        # Check if this volume has javascript:cid(0) links that need URL resolution
+        has_js_links = any("javascript:" in url for url, _ in chapters)
 
-        pending_js_chapters = []  # chapters with javascript: URLs waiting to be inferred
+        # If has JS links, fetch the volume page to get correct URLs
+        volume_page_urls = {}
+        if has_js_links and novel_id:
+            # Find the volume page URL
+            vol_page_match = re.search(r'/novel/\d+/(vol_\d+)\.html', block)
+            if vol_page_match:
+                vol_page_url = f"https://www.linovelib.com/novel/{novel_id}/{vol_page_match.group(1)}.html"
+                try:
+                    import cloudscraper
+                    import time
+                    time.sleep(1)  # Avoid rate limiting
+                    scraper = cloudscraper.create_scraper()
+                    resp = scraper.get(vol_page_url, headers={
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                        "Accept-Language": "zh-CN,zh;q=0.9",
+                    }, timeout=15)
+                    if resp.status_code == 200:
+                        # Extract chapter URLs from volume page
+                        vol_chapters = re.findall(
+                            r'<a[^>]*href="(/novel/\d+/\d+\.html)"[^>]*>([^<]+)</a>',
+                            resp.text
+                        )
+                        for url, title in vol_chapters:
+                            title = unescape(re.sub(r"<[^>]+>", "", title)).strip()
+                            volume_page_urls[title] = url
+                except Exception:
+                    pass  # Fall back if volume page fetch fails
 
         for url, title in chapters:
             title = unescape(re.sub(r"<[^>]+>", "", title)).strip()
@@ -135,32 +155,19 @@ def parse_catalog(html: str):
             if not re.match(r'/novel/\d+/\d+\.html$', url) and "javascript:" not in url:
                 continue
 
-            # Try to infer URL for javascript:cid(0) links
+            # Resolve javascript:cid(0) links
             if "javascript:" in url:
-                if novel_id and last_chapter_id is not None:
-                    # Infer from previous chapter ID
-                    inferred_id = last_chapter_id + 1
-                    url = f"/novel/{novel_id}/{inferred_id}.html"
-                    last_chapter_id = inferred_id
-                elif novel_id and first_valid_id is not None:
-                    # At the start of volume - infer from first valid ID
-                    inferred_id = first_valid_id - 1
-                    url = f"/novel/{novel_id}/{inferred_id}.html"
-                    # Don't update last_chapter_id since we're going backwards
-                    first_valid_id = inferred_id
+                # Try to get URL from volume page first
+                if title in volume_page_urls:
+                    url = volume_page_urls[title]
                 else:
-                    # Can't infer URL, record as skipped
+                    # Skip chapters that can't be resolved
                     volume.skipped_chapters.append({
                         "title": title,
                         "url": url,
                         "reason": "content_unavailable",
                     })
                     continue
-            else:
-                # Extract chapter ID from URL
-                id_match = re.match(r'/novel/\d+/(\d+)\.html$', url)
-                if id_match:
-                    last_chapter_id = int(id_match.group(1))
 
             is_illus = title in ("插图", "插圖", "插画", "插畫")
             if is_illus:
