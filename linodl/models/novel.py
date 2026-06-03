@@ -29,6 +29,7 @@ class Chapter:
 class Volume:
     name: str               # e.g. "第一卷"
     chapters: list[Chapter] = field(default_factory=list)
+    skipped_chapters: list[dict] = field(default_factory=list)  # VIP/locked chapters with javascript: links
 
     @property
     def text_count(self) -> int:
@@ -56,7 +57,7 @@ class ChapterIssue:
     chapter_index: int
     chapter_title: str
     chapter_url: str = ""
-    issue: str = ""          # "missing", "empty", "truncated", "image_missing", "image_corrupt"
+    issue: str = ""          # "missing", "empty", "truncated", "image_missing", "image_corrupt", "catalog_gap"
     detail: str = ""
 
 

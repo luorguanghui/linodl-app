@@ -1,6 +1,7 @@
 """Chapter and illustration download engine."""
 
 import hashlib
+import json
 import os
 import random
 import re
@@ -139,6 +140,14 @@ class Downloader:
             for vol in volumes if vol.name in selected_volume_names
             for ch in vol.chapters
         ]
+
+        # Save catalog manifest for each volume (for later verification)
+        for vol in volumes:
+            if vol.name not in selected_volume_names:
+                continue
+            vol_dir = os.path.join(self.output_dir, vol.name)
+            os.makedirs(vol_dir, exist_ok=True)
+            self._save_catalog_manifest(vol_dir, vol)
 
         total = len(all_chapters)
         prev_vol = None
@@ -618,6 +627,41 @@ class Downloader:
                 return True
         return False
 
+    @staticmethod
+    def _save_catalog_manifest(vol_dir: str, vol: Volume):
+        """Save expected chapter list to disk for later verification."""
+        manifest = {
+            "volume_name": vol.name,
+            "chapters": [
+                {
+                    "index": ch.index,
+                    "title": ch.title,
+                    "url": ch.url,
+                    "is_illustration": ch.is_illustration,
+                    "filename": f"{ch.index:03d}_{sanitize(ch.title)}.txt" if not ch.is_illustration else None,
+                }
+                for ch in vol.chapters
+            ],
+        }
+        path = os.path.join(vol_dir, "_catalog.json")
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(manifest, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    @staticmethod
+    def _load_catalog_manifest(vol_dir: str):
+        """Load expected chapter list from disk. Returns None if not found."""
+        path = os.path.join(vol_dir, "_catalog.json")
+        if not os.path.exists(path):
+            return None
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return None
+
     def _check_volume(self, vol_name, all_chapters):
         vol_dir = os.path.join(self.output_dir, vol_name)
         if not os.path.exists(vol_dir):
@@ -645,6 +689,10 @@ class Downloader:
         self._force_chapters.clear()
 
         for issue in verification.issues:
+            # catalog_gap issues can't be retried - they need a fresh catalog re-parse
+            if issue.issue == "catalog_gap":
+                continue
+
             vol_dir = os.path.join(self.output_dir, issue.volume_name)
             img_dir = os.path.join(vol_dir, "插图")
             is_illus = issue.chapter_title == "插图" or issue.chapter_index == 0
@@ -697,6 +745,26 @@ class Downloader:
             if vol.name not in selected_volume_names:
                 continue
             vol_dir = os.path.join(self.output_dir, vol.name)
+
+            # Compare against saved catalog manifest (detects missing chapters)
+            manifest = self._load_catalog_manifest(vol_dir)
+            if manifest:
+                actual_files = set(f for f in os.listdir(vol_dir) if f.endswith(".txt")) if os.path.isdir(vol_dir) else set()
+                for mch in manifest["chapters"]:
+                    fname = mch.get("filename")
+                    if fname and fname not in actual_files:
+                        # Check if a file with the same index exists (title may have been sanitized differently)
+                        idx_prefix = f"{mch['index']:03d}_"
+                        has_same_idx = any(f.startswith(idx_prefix) for f in actual_files)
+                        if not has_same_idx:
+                            result.issues.append(ChapterIssue(
+                                volume_name=vol.name,
+                                chapter_index=mch["index"],
+                                chapter_title=mch["title"],
+                                chapter_url=mch.get("url", ""),
+                                issue="catalog_gap",
+                                detail=f"文件缺失(目录记录存在): {mch['title']}",
+                            ))
 
             for ch in vol.chapters:
                 result.total_expected += 1

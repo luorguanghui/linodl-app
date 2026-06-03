@@ -283,6 +283,9 @@ class App:
             summary_parts.append(f"[yellow]可能截断 {verification.truncated}[/yellow]")
         if verification.image_issues:
             summary_parts.append(f"[yellow]图片问题 {verification.image_issues}[/yellow]")
+        catalog_gaps = [i for i in verification.issues if i.issue == "catalog_gap"]
+        if catalog_gaps:
+            summary_parts.append(f"[red]目录缺章 {len(catalog_gaps)}[/red]")
 
         border_style = "red" if (verification.missing or verification.empty) else "yellow"
         self.console.print(Panel.fit(
@@ -307,6 +310,7 @@ class App:
                 "truncated": "[yellow]可能截断[/yellow]",
                 "image_missing": "[yellow]图片缺失[/yellow]",
                 "image_corrupt": "[yellow]图片损坏[/yellow]",
+                "catalog_gap": "[red]目录缺章[/red]",
             }.get(issue.issue, issue.issue)
 
             table.add_row(

@@ -110,15 +110,58 @@ def parse_catalog(html: str):
         vol_name = sanitize(unescape(vol_match.group(1)).strip()) if vol_match else "Unknown"
 
         chapters = re.findall(
-            r'<a href="(/novel/\d+/\d+\.html)">([^<]+)</a>', block
+            r'<a[^>]*href="([^"]+)"[^>]*>(.*?)</a>', block, re.DOTALL
         )
 
         volume = Volume(name=vol_name)
         text_idx = 0
+        last_chapter_id = None
+        novel_id_match = re.search(r'/novel/(\d+)/', block)
+        novel_id = novel_id_match.group(1) if novel_id_match else None
+
+        # Pre-scan: find the first valid chapter ID for inferring URLs at the start
+        first_valid_id = None
+        for url, _ in chapters:
+            id_match = re.match(r'/novel/\d+/(\d+)\.html$', url)
+            if id_match:
+                first_valid_id = int(id_match.group(1))
+                break
+
+        pending_js_chapters = []  # chapters with javascript: URLs waiting to be inferred
+
         for url, title in chapters:
-            title = unescape(title).strip()
-            if "javascript:" in url:
+            title = unescape(re.sub(r"<[^>]+>", "", title)).strip()
+            # Skip non-chapter links (volume covers, etc.)
+            if not re.match(r'/novel/\d+/\d+\.html$', url) and "javascript:" not in url:
                 continue
+
+            # Try to infer URL for javascript:cid(0) links
+            if "javascript:" in url:
+                if novel_id and last_chapter_id is not None:
+                    # Infer from previous chapter ID
+                    inferred_id = last_chapter_id + 1
+                    url = f"/novel/{novel_id}/{inferred_id}.html"
+                    last_chapter_id = inferred_id
+                elif novel_id and first_valid_id is not None:
+                    # At the start of volume - infer from first valid ID
+                    inferred_id = first_valid_id - 1
+                    url = f"/novel/{novel_id}/{inferred_id}.html"
+                    # Don't update last_chapter_id since we're going backwards
+                    first_valid_id = inferred_id
+                else:
+                    # Can't infer URL, record as skipped
+                    volume.skipped_chapters.append({
+                        "title": title,
+                        "url": url,
+                        "reason": "content_unavailable",
+                    })
+                    continue
+            else:
+                # Extract chapter ID from URL
+                id_match = re.match(r'/novel/\d+/(\d+)\.html$', url)
+                if id_match:
+                    last_chapter_id = int(id_match.group(1))
+
             is_illus = title in ("插图", "插圖", "插画", "插畫")
             if is_illus:
                 volume.chapters.append(Chapter(

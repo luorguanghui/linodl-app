@@ -80,14 +80,52 @@ def parse_catalog(html):
         vol_name = sanitize(vol_match.group(1)) if vol_match else "Unknown"
 
         chapters = re.findall(
-            r'<a href="(/novel/\d+/\d+\.html)">([^<]+)</a>', block
+            r'<a[^>]*href="([^"]+)"[^>]*>(.*?)</a>', block, re.DOTALL
         )
 
         text_idx = 0
+        last_chapter_id = None
+        novel_id_match = re.search(r'/novel/(\d+)/', block)
+        block_novel_id = novel_id_match.group(1) if novel_id_match else novel_id
+
+        # Pre-scan: find the first valid chapter ID
+        first_valid_id = None
+        for url, _ in chapters:
+            id_match = re.match(r'/novel/\d+/(\d+)\.html$', url)
+            if id_match:
+                first_valid_id = int(id_match.group(1))
+                break
+
         for url, title in chapters:
-            if 'javascript:' in url:
+            title = re.sub(r'<[^>]+>', '', title).strip()
+            # Skip non-chapter links
+            if not re.match(r'/novel/\d+/\d+\.html$', url) and 'javascript:' not in url:
                 continue
-            is_illus = title.strip() in ('插图', '插圖', '插画')
+
+            # Try to infer URL for javascript:cid(0) links
+            if 'javascript:' in url:
+                if block_novel_id and last_chapter_id is not None:
+                    inferred_id = last_chapter_id + 1
+                    inferred_url = f'/novel/{block_novel_id}/{inferred_id}.html'
+                    print(f"  [INFER] {title} -> {inferred_url}")
+                    url = inferred_url
+                    last_chapter_id = inferred_id
+                elif block_novel_id and first_valid_id is not None:
+                    # At the start of volume - infer from first valid ID
+                    inferred_id = first_valid_id - 1
+                    inferred_url = f'/novel/{block_novel_id}/{inferred_id}.html'
+                    print(f"  [INFER] {title} -> {inferred_url}")
+                    url = inferred_url
+                    first_valid_id = inferred_id
+                else:
+                    print(f"  [SKIP] 内容不可用: {title}")
+                    continue
+            else:
+                id_match = re.match(r'/novel/\d+/(\d+)\.html$', url)
+                if id_match:
+                    last_chapter_id = int(id_match.group(1))
+
+            is_illus = title in ('插图', '插圖', '插画', '插畫')
             if is_illus:
                 result.append((vol_name, 0, url, title, True))
             else:

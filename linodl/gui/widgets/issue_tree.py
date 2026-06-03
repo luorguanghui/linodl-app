@@ -22,6 +22,7 @@ class IssueTree(ctk.CTkScrollableFrame):
             "truncated": "可能截断",
             "image_missing": "图片缺失",
             "image_corrupted": "图片损坏",
+            "catalog_gap": "目录缺章",
         }
 
         for issue in issues:
@@ -31,6 +32,7 @@ class IssueTree(ctk.CTkScrollableFrame):
                 "truncated": style.COLOR_PRIMARY,
                 "image_missing": "#e67e22",
                 "image_corrupted": "#c0392b",
+                "catalog_gap": style.COLOR_DANGER,
             }.get(issue.issue, "#95a5a6")
 
             issue_cn = issue_labels_map.get(issue.issue, issue.issue)
