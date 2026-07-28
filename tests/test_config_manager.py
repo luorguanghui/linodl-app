@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from linodl.config import manager as config_manager
 from linodl.config.manager import ConfigManager
 
 
@@ -59,3 +60,33 @@ def test_config_manager_rejects_unknown_theme(tmp_path: Path):
     cfg.theme = "sepia"
 
     assert cfg.theme == "auto"
+
+
+def test_update_settings_writes_consistent_snapshot_and_disables_geoip_without_proxy(
+    tmp_path: Path,
+):
+    cfg = ConfigManager(str(tmp_path / ".linovelib.ini"))
+
+    cfg.update_settings(
+        username="reader",
+        password="secret",
+        output_dir="books",
+        headless=True,
+        anti_bot_mode="cloak",
+        profile_dir="profile",
+        proxy="",
+        geoip=True,
+        theme="dark",
+    )
+
+    reloaded = ConfigManager(str(tmp_path / ".linovelib.ini"))
+    assert reloaded.username == "reader"
+    assert reloaded.output_dir == "books"
+    assert reloaded.geoip is False
+    assert reloaded.theme == "dark"
+
+
+def test_effective_geoip_requires_proxy():
+    assert config_manager.effective_geoip("", True) is False
+    assert config_manager.effective_geoip("socks5://127.0.0.1:1080", True) is True
+    assert config_manager.effective_geoip("http://127.0.0.1:8080", False) is False

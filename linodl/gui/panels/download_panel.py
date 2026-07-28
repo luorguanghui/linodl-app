@@ -7,18 +7,29 @@ from .. import style
 
 
 class DownloadPanel(ctk.CTkFrame):
-    def __init__(self, parent, config, message_queue, show_search, set_active_panel=None, **kwargs):
+    def __init__(
+        self,
+        parent,
+        config,
+        message_queue,
+        show_search,
+        embedded=False,
+        on_step_changed=None,
+        **kwargs,
+    ):
+        kwargs.setdefault("fg_color", "transparent")
         super().__init__(parent, **kwargs)
         self._config = config
         self._queue = message_queue
         self._show_search = show_search
-        self._set_active_panel = set_active_panel or (lambda panel: None)
+        self._on_step_changed = on_step_changed or (lambda _step: None)
         self._volumes = []
         self._novel_info = None
         self._selected_names = set()
         self._downloader = None
         self._verification = None
         self._worker = None
+        self._export_worker = None
         self._volume_checkboxes = []
 
         # Header
@@ -34,7 +45,10 @@ class DownloadPanel(ctk.CTkFrame):
         self._author_label.pack(anchor="w")
 
         # Volume list
-        self._volume_frame = ctk.CTkScrollableFrame(self)
+        self._volume_frame = ctk.CTkScrollableFrame(
+            self,
+            fg_color="transparent",
+        )
         self._volume_frame.pack(fill="both", expand=True, padx=style.PAD_X, pady=4)
         self._empty_volume_label = None
         self._show_empty_catalog()
@@ -54,7 +68,7 @@ class DownloadPanel(ctk.CTkFrame):
         ).pack(side="left")
 
         self._download_btn = ctk.CTkButton(
-            action_frame, text="开始下载", fg_color=style.COLOR_SUCCESS, hover_color="#2b8a3e",
+            action_frame, text="开始下载", width=100, fg_color=style.COLOR_SUCCESS, hover_color="#2b8a3e",
             command=self._start_download, height=36, state="disabled"
         )
         self._download_btn.pack(side="right")
@@ -81,11 +95,11 @@ class DownloadPanel(ctk.CTkFrame):
             hover_color=style.COLOR_PRIMARY_HOVER, command=self._start_export
         )
 
-        # Back button
-        ctk.CTkButton(
-            self, text="← 返回搜索", command=self._show_search, fg_color="transparent",
-            text_color="gray", height=28
-        ).pack(padx=style.PAD_X, pady=(4, 8))
+        if not embedded:
+            ctk.CTkButton(
+                self, text="← 返回搜索", command=self._show_search, fg_color="transparent",
+                text_color="gray", height=28
+            ).pack(padx=style.PAD_X, pady=(4, 8))
 
     def load_catalog(self, url_or_novel_info, novel_info=None):
         if novel_info is not None:
@@ -100,10 +114,10 @@ class DownloadPanel(ctk.CTkFrame):
             return
 
         self._clear_all()
+        self._on_step_changed("volumes")
         self._title_label.configure(text="正在获取目录...")
         self._author_label.configure(text=url)
-        self._set_active_panel(self)
-        self._worker = CatalogWorker(url, self._config, self._queue)
+        self._worker = CatalogWorker(url, self._config, self._queue, owner=self)
         self._worker.start()
 
     def on_catalog_result(self, data):
@@ -156,6 +170,7 @@ class DownloadPanel(ctk.CTkFrame):
             return
 
         self._selected_names = selected
+        self._on_step_changed("download")
         self._author_label.configure(
             text=f"作者: {self._novel_info.author or '-'}   |   已选择 {len(selected)} 卷",
             text_color=style.COLOR_MUTED,
@@ -170,9 +185,8 @@ class DownloadPanel(ctk.CTkFrame):
         self._progress_area.update(0, "正在准备下载...")
         self._download_btn.configure(state="disabled")
 
-        self._set_active_panel(self)
         self._worker = DownloadWorker(
-            self._volumes, selected, self._novel_info, self._config, self._queue
+            self._volumes, selected, self._novel_info, self._config, self._queue, owner=self
         )
         self._worker.start()
 
@@ -180,6 +194,7 @@ class DownloadPanel(ctk.CTkFrame):
         result, verification, downloader = data
         self._verification = verification
         self._downloader = downloader
+        self._on_step_changed("verify_export")
         self._progress_area.pack_forget()
 
         # Hide volume list and action bar to give results full space.
@@ -221,24 +236,22 @@ class DownloadPanel(ctk.CTkFrame):
         self._progress_area.update(0, "正在重试失败章节...")
         self._download_btn.configure(state="disabled")
 
-        self._set_active_panel(self)
         self._worker = RetryWorker(
             self._downloader, self._volumes, self._selected_names,
-            self._novel_info, self._config, self._queue
+            self._novel_info, self._config, self._queue, owner=self
         )
         self._worker.start()
 
     def _start_export(self):
         self._export_btn.configure(text="正在导出...", state="disabled")
-        self._set_active_panel(self)
         worker = ExportWorker(
-            self._novel_info, self._volumes, self._config.output_dir, True, self._queue
+            self._novel_info, self._volumes, self._config.output_dir, True, self._queue, owner=self
         )
         self._export_worker = worker
         worker.start()
 
     def on_export_result(self, paths):
-        self._export_btn.configure(text="EPUB 已导出!", state="normal", fg_color="green")
+        self._export_btn.configure(text="EPUB 已导出!", state="normal", fg_color=style.COLOR_SUCCESS)
         paths_list = paths if isinstance(paths, list) else [paths]
         text = self._result_summary.cget("text") + "\n\nEPUB 保存至:"
         for p in paths_list:
@@ -248,8 +261,15 @@ class DownloadPanel(ctk.CTkFrame):
     def _cancel_download(self):
         if self._worker:
             self._worker.cancel()
-        self._progress_area.pack_forget()
-        self._download_btn.configure(state="normal")
+            self._progress_area.update(0, "正在取消，请稍候…")
+        self._download_btn.configure(state="disabled")
+
+    def on_done(self):
+        if self._worker and self._worker.is_cancelled():
+            self._progress_area.pack_forget()
+            self._download_btn.configure(
+                state="normal" if self._volumes else "disabled"
+            )
 
     def _hide_result(self):
         self._result_frame.pack_forget()
@@ -285,4 +305,11 @@ class DownloadPanel(ctk.CTkFrame):
             self._volume_frame, text=text, text_color=style.COLOR_MUTED,
             font=style.meta_font(), anchor="center"
         )
-        self._empty_volume_label.pack(fill="both", expand=True, padx=16, pady=40)
+        self._empty_volume_label.pack(fill="both", expand=True, padx=16, pady=24)
+
+    def is_busy(self):
+        for attr in ('_worker', '_export_worker'):
+            w = getattr(self, attr, None)
+            if w is not None and w.is_alive():
+                return True
+        return False

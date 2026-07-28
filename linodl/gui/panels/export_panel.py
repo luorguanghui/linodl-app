@@ -10,11 +10,10 @@ from ...models.novel import Chapter, NovelInfo, Volume
 
 
 class ExportPanel(ctk.CTkFrame):
-    def __init__(self, parent, config, message_queue, set_active_panel=None, **kwargs):
+    def __init__(self, parent, config, message_queue, **kwargs):
         super().__init__(parent, **kwargs)
         self._config = config
         self._queue = message_queue
-        self._set_active_panel = set_active_panel or (lambda panel: None)
         self._subdirs = []
         self._dir_check_vars = []
 
@@ -115,7 +114,7 @@ class ExportPanel(ctk.CTkFrame):
                 self._dir_list_frame, text="扫描后会在这里显示可导出的分卷目录。",
                 text_color=style.COLOR_MUTED, font=style.meta_font()
             )
-            label.pack(fill="both", expand=True, padx=16, pady=40)
+            label.pack(fill="both", expand=True, padx=16, pady=24)
             self._dir_check_vars.append((None, None, label))
             return
         for d in self._subdirs:
@@ -144,16 +143,18 @@ class ExportPanel(ctk.CTkFrame):
             return
 
         self._status_label.configure(text="正在导出...", text_color="gray")
-        self._export_btn.configure(state="disabled")
+        self._export_btn.configure(state="disabled", fg_color=style.COLOR_PRIMARY)
 
         output_dir = self._dir_var.get()
         novel_info, volumes = self._build_from_directories(output_dir, selected)
 
-        self._set_active_panel(self)
         self._worker = ExportWorker(
-            novel_info, volumes, output_dir, self._per_volume_var.get(), self._queue
+            novel_info, volumes, output_dir, self._per_volume_var.get(), self._queue, owner=self
         )
         self._worker.start()
+
+    def on_progress(self, msg):
+        self._status_label.configure(text=msg, text_color="gray")
 
     def on_export_result(self, paths):
         self._export_btn.configure(text="导出 EPUB", state="normal", fg_color=style.COLOR_SUCCESS)
@@ -169,6 +170,9 @@ class ExportPanel(ctk.CTkFrame):
     def on_error(self, msg):
         self._export_btn.configure(text="导出 EPUB", state="normal", fg_color=style.COLOR_PRIMARY)
         self._status_label.configure(text=f"导出失败: {msg}", text_color=style.COLOR_DANGER)
+
+    def is_busy(self):
+        return self._worker is not None and self._worker.is_alive()
 
     def _build_from_directories(self, output_dir, selected_dirs):
         title = selected_dirs[0] if len(selected_dirs) == 1 else self._derive_batch_title(selected_dirs)

@@ -11,11 +11,10 @@ from ...models.novel import Chapter, Volume
 
 
 class VerifyPanel(ctk.CTkFrame):
-    def __init__(self, parent, config, message_queue, set_active_panel=None, **kwargs):
+    def __init__(self, parent, config, message_queue, **kwargs):
         super().__init__(parent, **kwargs)
         self._config = config
         self._queue = message_queue
-        self._set_active_panel = set_active_panel or (lambda panel: None)
         self._subdirs = []
         self._dir_check_vars = []
 
@@ -109,7 +108,7 @@ class VerifyPanel(ctk.CTkFrame):
                 self._dir_list_frame, text="扫描后会在这里显示可校验的分卷目录。",
                 text_color=style.COLOR_MUTED, font=style.meta_font()
             )
-            label.pack(fill="both", expand=True, padx=16, pady=40)
+            label.pack(fill="both", expand=True, padx=16, pady=24)
             self._dir_check_vars.append((None, None, label))
             return
         for d in self._subdirs:
@@ -153,9 +152,11 @@ class VerifyPanel(ctk.CTkFrame):
                 ))
             volumes.append(vol)
 
-        self._set_active_panel(self)
-        self._worker = VerifyWorker(volumes, set(selected), output_dir, self._queue)
+        self._worker = VerifyWorker(volumes, set(selected), output_dir, self._queue, owner=self)
         self._worker.start()
+
+    def on_progress(self, msg):
+        self._status_label.configure(text=msg, text_color="gray")
 
     def on_verify_result(self, verification):
         self._verify_btn.configure(state="normal")
@@ -175,6 +176,9 @@ class VerifyPanel(ctk.CTkFrame):
     def on_error(self, msg):
         self._verify_btn.configure(state="normal")
         self._status_label.configure(text=f"校验失败: {msg}", text_color=style.COLOR_DANGER)
+
+    def is_busy(self):
+        return self._worker is not None and self._worker.is_alive()
 
     def _build_volume_from_directory(self, output_dir, directory):
         vol_path = os.path.join(output_dir, directory)

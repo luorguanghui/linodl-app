@@ -2,7 +2,13 @@
 
 import os
 import configparser
+import tempfile
 from pathlib import Path
+
+
+def effective_geoip(proxy: str, requested: bool) -> bool:
+    """GeoIP matching is meaningful only when traffic uses a proxy."""
+    return bool((proxy or "").strip() and requested)
 
 
 class ConfigManager:
@@ -48,8 +54,66 @@ class ConfigManager:
 
     def _save(self):
         os.makedirs(str(self._path.parent), exist_ok=True)
-        with open(str(self._path), "w", encoding="utf-8") as f:
-            self._cfg.write(f)
+        temp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=str(self._path.parent),
+                prefix=f".{self._path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as temp_file:
+                self._cfg.write(temp_file)
+                temp_path = temp_file.name
+            os.replace(temp_path, self._path)
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                os.unlink(temp_path)
+
+    def update_settings(
+        self,
+        *,
+        username: str,
+        password: str,
+        output_dir: str,
+        headless: bool,
+        anti_bot_mode: str,
+        profile_dir: str,
+        proxy: str,
+        geoip: bool,
+        theme: str,
+    ):
+        """Validate and persist the settings form as one consistent snapshot."""
+        proxy = (proxy or "").strip()
+        anti_bot_mode = (anti_bot_mode or "").strip().lower()
+        if anti_bot_mode not in {"auto", "playwright", "cloak"}:
+            anti_bot_mode = "auto"
+        theme = (theme or "").strip().lower()
+        if theme not in {"auto", "light", "dark"}:
+            theme = "auto"
+
+        values = {
+            "account": {
+                "username": username or "",
+                "password": password or "",
+            },
+            "download": {
+                "output_dir": output_dir or "novel_output",
+                "headless": "true" if headless else "false",
+                "anti_bot_mode": anti_bot_mode,
+                "profile_dir": profile_dir or str(Path.home() / ".linodl-browser"),
+            },
+            "network": {
+                "proxy": proxy,
+                "geoip": "true" if effective_geoip(proxy, geoip) else "false",
+            },
+            "ui": {"theme": theme},
+        }
+        for section, options in values.items():
+            for key, value in options.items():
+                self._cfg.set(section, key, value)
+        self._save()
 
     # ---- account ----
 

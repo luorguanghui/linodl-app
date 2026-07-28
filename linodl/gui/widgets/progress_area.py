@@ -36,7 +36,7 @@ class ProgressArea(ctk.CTkFrame):
             self, text="取消", fg_color=style.COLOR_DANGER, hover_color="#c92a2a",
             command=self._on_cancel_click, width=100
         )
-        self._cancel_btn.pack(pady=(2, 8))
+        self._cancel_btn.pack(anchor="e", pady=(4, 8))
 
     def _on_cancel_click(self):
         self._cancel_btn.configure(text="正在取消...", state="disabled")

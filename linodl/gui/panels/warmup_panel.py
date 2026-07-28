@@ -5,11 +5,10 @@ from .. import style
 
 
 class WarmupPanel(ctk.CTkFrame):
-    def __init__(self, parent, config, message_queue, set_active_panel=None, **kwargs):
+    def __init__(self, parent, config, message_queue, **kwargs):
         super().__init__(parent, **kwargs)
         self._config = config
         self._queue = message_queue
-        self._set_active_panel = set_active_panel or (lambda panel: None)
         self._worker = None
 
         ctk.CTkLabel(self, text="Cloudflare 预热", font=style.title_font()).pack(
@@ -32,8 +31,8 @@ class WarmupPanel(ctk.CTkFrame):
 
         # Start button
         self._start_btn = ctk.CTkButton(
-            self, text="开始预热", command=self._start_warmup,
-            fg_color="#3498db", hover_color="#2980b9", height=36
+            self, text="开始预热", command=self._start_warmup, width=100,
+            fg_color=style.COLOR_PRIMARY, hover_color=style.COLOR_PRIMARY_HOVER, height=36
         )
         self._start_btn.pack(padx=style.PAD_X, pady=(16, 8))
 
@@ -50,8 +49,7 @@ class WarmupPanel(ctk.CTkFrame):
         self._progress_bar.start()
         self._status_label.configure(text="正在启动 CloakBrowser...", text_color="gray")
 
-        self._set_active_panel(self)
-        self._worker = WarmupWorker(self._config, self._queue)
+        self._worker = WarmupWorker(self._config, self._queue, owner=self)
         self._worker.start()
 
     def on_progress(self, msg):
@@ -71,3 +69,6 @@ class WarmupPanel(ctk.CTkFrame):
 
     def on_done(self):
         self._start_btn.configure(text="开始预热", state="normal")
+
+    def is_busy(self):
+        return self._worker is not None and self._worker.is_alive()
