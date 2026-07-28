@@ -1,6 +1,9 @@
 cloudscraper>=1.2.71
 playwright>=1.40
 httpx>=0.25.0
+cryptography>=41.0
+geoip2>=4.0
+socksio>=1.0
 rich>=13.0
 ebooklib>=0.18
 pytest>=9.0

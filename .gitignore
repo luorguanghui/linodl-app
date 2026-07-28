@@ -17,10 +17,17 @@ smoke_empty_5105/
 
 # Local debug captures
 debug_*.html
+debug_results*.json
+
+# Local CloakBrowser profile and caches
+vendor/cloakbrowser/cloak/
+
+# Local design and dependency-sync workspaces
+.superpowers/
+.tmp-cloakbrowser-wheel/
 
 # OS/editor noise
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
-debug_results*.json

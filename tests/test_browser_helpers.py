@@ -229,6 +229,14 @@ def test_start_cloak_geoip_omits_locale_and_custom_viewport(monkeypatch, tmp_pat
     assert "viewport" not in captured["kwargs"]
 
 
+def test_project_loads_vendored_cloakbrowser_052():
+    import cloakbrowser
+
+    module_path = cloakbrowser.__file__.replace("\\", "/")
+    assert "/vendor/cloakbrowser/" in module_path
+    assert cloakbrowser.__version__ == "0.5.2"
+
+
 class _BlankWarmupSession:
     def __init__(self, html="<html><head></head><body></body></html>"):
         self.started = False

@@ -64,6 +64,13 @@ def human_scroll_into_view(
     """
     viewport = page.viewport_size
     if not viewport:
+        # Headed launches default to no_viewport so the page tracks the real OS
+        # window; page.viewport_size is then None. Fall back to the live window
+        # dimensions so humanize works headed (the stealth-relevant mode).
+        viewport = page.evaluate(
+            "() => ({ width: window.innerWidth, height: window.innerHeight })"
+        )
+    if not viewport or not viewport.get("height"):
         raise RuntimeError("Viewport size not available")
 
     viewport_height = viewport["height"]
