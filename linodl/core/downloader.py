@@ -15,6 +15,10 @@ from ..models.novel import Chapter, ChapterIssue, DownloadResult, NovelInfo, Ver
 from .browser import BASE_URL, is_cloudflare_challenge
 
 
+class DownloadCancelled(RuntimeError):
+    """Raised when the owning task requests cooperative cancellation."""
+
+
 def sanitize(name):
     return re.sub(r'[<>:"/\\|?*]', "_", name)
 
@@ -73,10 +77,12 @@ class Downloader:
         output_dir: str = "novel_output",
         delay_range: tuple = (0.3, 1.0),
         progress_callback: Callable = None,
+        cancel_callback: Callable[[], bool] | None = None,
     ):
         self.output_dir = output_dir
         self.delay_min, self.delay_max = delay_range
         self.progress_callback = progress_callback
+        self.cancel_callback = cancel_callback
         self.failed_chapters = []
         self._force_chapters = set()  # (volume_name, chapter_index) for retry
 
@@ -84,7 +90,12 @@ class Downloader:
         if self.progress_callback:
             self.progress_callback(msg)
 
+    def _check_cancelled(self):
+        if self.cancel_callback and self.cancel_callback():
+            raise DownloadCancelled("下载已取消")
+
     def _delay(self, scale: float = 1.0):
+        self._check_cancelled()
         time.sleep(random.uniform(
             self.delay_min * scale, self.delay_max * scale
         ))
@@ -94,6 +105,7 @@ class Downloader:
         are automatically skipped regardless of which chapter references them."""
 
         def _download_one(img_url):
+            self._check_cancelled()
             filename = img_fname(img_url)
             img_path = os.path.join(img_dir, filename)
             if os.path.exists(img_path):
@@ -115,6 +127,7 @@ class Downloader:
         page=None,
         browser_session=None,
     ) -> DownloadResult:
+        self._check_cancelled()
         if browser_session is not None:
             browser_session.start()
             page = browser_session.page
@@ -143,6 +156,7 @@ class Downloader:
 
         # Save catalog manifest for each volume (for later verification)
         for vol in volumes:
+            self._check_cancelled()
             if vol.name not in selected_volume_names:
                 continue
             vol_dir = os.path.join(self.output_dir, vol.name)
@@ -153,6 +167,7 @@ class Downloader:
         prev_vol = None
 
         for i, (vol_name, ch) in enumerate(all_chapters):
+            self._check_cancelled()
             if browser_session is not None:
                 page = browser_session.page
 
@@ -187,6 +202,8 @@ class Downloader:
 
                 self._delay()
 
+            except DownloadCancelled:
+                raise
             except Exception as e:
                 self._report(f"ERROR: {e}")
                 self.failed_chapters.append(f"{BASE_URL}{ch.url}")
@@ -268,6 +285,7 @@ class Downloader:
         ch_prefix = f"{ch.index:03d}_{sanitize(ch.title)}"
 
         while True:
+            self._check_cancelled()
             page_no += 1
             page_url = urljoin(
                 BASE_URL,

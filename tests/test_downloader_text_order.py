@@ -1,4 +1,8 @@
+import pytest
+
+from linodl.core import downloader as downloader_module
 from linodl.core.downloader import Downloader
+from linodl.models.novel import NovelInfo
 
 
 class _FakeTextElement:
@@ -26,6 +30,27 @@ class _FakeStabilizingPage:
 
     def wait_for_timeout(self, ms):
         self.waits.append(ms)
+
+
+def test_download_stops_before_work_when_cancelled():
+    class FakeBrowserSession:
+        page = object()
+
+        def start(self):
+            pass
+
+    downloader = Downloader(
+        output_dir="unused",
+        cancel_callback=lambda: True,
+    )
+
+    with pytest.raises(downloader_module.DownloadCancelled):
+        downloader.download(
+            [],
+            set(),
+            NovelInfo(title="测试作品"),
+            browser_session=FakeBrowserSession(),
+        )
 
 
 def test_wait_for_text_content_ready_waits_for_stable_reordered_text():

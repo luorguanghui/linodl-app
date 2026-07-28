@@ -8,38 +8,119 @@ from ..core.browser import BASE_URL, BrowserSession, is_cloudflare_challenge
 from ..core.search import SearchEngine
 from ..core.catalog import fetch_catalog, parse_catalog
 from ..core.auth import login, check_logged_in
-from ..core.downloader import Downloader, sanitize
+from ..core.downloader import DownloadCancelled, Downloader, sanitize
 from ..core.epub import EpubExporter
+from .tasks import TaskInputSnapshot, TaskStatus, TaskStore, task_store
 
 
 class BackgroundWorker(threading.Thread):
-    def __init__(self, message_queue: queue.Queue):
+    def __init__(
+        self,
+        message_queue: queue.Queue,
+        owner=None,
+        *,
+        task_title: str = "后台任务",
+        input_snapshot: TaskInputSnapshot | None = None,
+        task_store_instance: TaskStore | None = None,
+    ):
         super().__init__(daemon=True)
         self._queue = message_queue
         self._cancel_flag = threading.Event()
+        self._owner = owner
+        self._task_store = task_store_instance or task_store
+        self._task_id = self._task_store.create(
+            task_title,
+            input_snapshot,
+        ).id
+        self._outcome = None
+        self._error_detail = ""
+
+    @property
+    def task(self):
+        return self._task_store.get(self._task_id)
+
+    def start(self):
+        if self.task.status is TaskStatus.QUEUED:
+            self._task_store.transition(
+                self._task_id,
+                TaskStatus.RUNNING,
+                "正在运行",
+            )
+        super().start()
 
     def cancel(self):
         self._cancel_flag.set()
+        if self.task.status not in {
+            TaskStatus.CANCELLED,
+            TaskStatus.FAILED,
+            TaskStatus.COMPLETED,
+        }:
+            self._task_store.transition(
+                self._task_id,
+                TaskStatus.CANCELLING,
+                "正在取消",
+            )
 
     def is_cancelled(self):
         return self._cancel_flag.is_set()
 
     def report_progress(self, msg: str):
-        self._queue.put(("progress", msg))
+        if self.task.status in {
+            TaskStatus.RUNNING,
+            TaskStatus.WAITING_FOR_PROFILE,
+        }:
+            self._task_store.transition(
+                self._task_id,
+                TaskStatus.RUNNING,
+                msg,
+            )
+        self._queue.put(("progress", msg, self._owner))
+
+    def report_profile_wait(self, msg: str):
+        self._task_store.transition(
+            self._task_id,
+            TaskStatus.WAITING_FOR_PROFILE,
+            msg,
+        )
+        self._queue.put(("progress", msg, self._owner))
 
     def report_result(self, data):
-        self._queue.put(("result", data))
+        self._outcome = TaskStatus.COMPLETED
+        self._queue.put(("result", data, self._owner))
 
     def report_error(self, msg: str):
-        self._queue.put(("error", msg))
+        self._outcome = TaskStatus.FAILED
+        self._error_detail = msg
+        self._queue.put(("error", msg, self._owner))
 
     def report_done(self):
-        self._queue.put(("done", None))
+        self._queue.put(("done", None, self._owner))
+        if self.is_cancelled():
+            status = TaskStatus.CANCELLED
+            detail = "已取消"
+        elif self._outcome is TaskStatus.FAILED:
+            status = TaskStatus.FAILED
+            detail = "执行失败"
+        else:
+            status = TaskStatus.COMPLETED
+            detail = "已完成"
+        self._task_store.transition(
+            self._task_id,
+            status,
+            detail,
+            progress=1.0 if status is TaskStatus.COMPLETED else None,
+            error_detail=self._error_detail,
+        )
 
 
 class SearchWorker(BackgroundWorker):
-    def __init__(self, keyword: str, config: ConfigManager, message_queue: queue.Queue):
-        super().__init__(message_queue)
+    def __init__(self, keyword: str, config: ConfigManager, message_queue: queue.Queue, owner=None):
+        super().__init__(
+            message_queue,
+            owner=owner,
+            task_title=f"搜索 {keyword}",
+            input_snapshot=TaskInputSnapshot(kind="search", query=keyword),
+        )
         self.keyword = keyword
         self.config = config
 
@@ -54,6 +135,8 @@ class SearchWorker(BackgroundWorker):
                 geoip=self.config.geoip,
                 profile_dir=self.config.profile_dir,
                 progress_callback=self.report_progress,
+                cancel_event=self._cancel_flag,
+                profile_wait_callback=self.report_profile_wait,
             )
             session.start()
             self.report_progress(f"正在搜索: {self.keyword}")
@@ -72,8 +155,13 @@ class SearchWorker(BackgroundWorker):
 
 
 class CatalogWorker(BackgroundWorker):
-    def __init__(self, url: str, config: ConfigManager, message_queue: queue.Queue):
-        super().__init__(message_queue)
+    def __init__(self, url: str, config: ConfigManager, message_queue: queue.Queue, owner=None):
+        super().__init__(
+            message_queue,
+            owner=owner,
+            task_title="读取作品目录",
+            input_snapshot=TaskInputSnapshot(kind="catalog", url=url),
+        )
         self.url = url
         self.config = config
 
@@ -88,6 +176,8 @@ class CatalogWorker(BackgroundWorker):
                 geoip=self.config.geoip,
                 profile_dir=self.config.profile_dir,
                 progress_callback=self.report_progress,
+                cancel_event=self._cancel_flag,
+                profile_wait_callback=self.report_profile_wait,
             )
             session.start()
             html = fetch_catalog(self.url, browser_session=session)
@@ -107,9 +197,18 @@ class CatalogWorker(BackgroundWorker):
 class DownloadWorker(BackgroundWorker):
     def __init__(
         self, volumes, selected_volume_names, novel_info,
-        config: ConfigManager, message_queue: queue.Queue
+        config: ConfigManager, message_queue: queue.Queue, owner=None
     ):
-        super().__init__(message_queue)
+        super().__init__(
+            message_queue,
+            owner=owner,
+            task_title=f"下载 {getattr(novel_info, 'title', '') or '作品'}",
+            input_snapshot=TaskInputSnapshot(
+                kind="download",
+                selected_volumes=tuple(sorted(selected_volume_names)),
+                output_dir=config.output_dir,
+            ),
+        )
         self.volumes = volumes
         self.selected_volume_names = selected_volume_names
         self.novel_info = novel_info
@@ -126,6 +225,8 @@ class DownloadWorker(BackgroundWorker):
                 geoip=self.config.geoip,
                 profile_dir=self.config.profile_dir,
                 progress_callback=self.report_progress,
+                cancel_event=self._cancel_flag,
+                profile_wait_callback=self.report_profile_wait,
             )
             session.start()
 
@@ -146,6 +247,7 @@ class DownloadWorker(BackgroundWorker):
                 output_dir=self.config.output_dir,
                 delay_range=self.config.delay_range,
                 progress_callback=self.report_progress,
+                cancel_callback=self.is_cancelled,
             )
 
             self.report_progress("正在下载...")
@@ -163,6 +265,8 @@ class DownloadWorker(BackgroundWorker):
             verification = downloader.verify_all(self.volumes, self.selected_volume_names)
 
             self.report_result((result, verification, downloader))
+        except DownloadCancelled:
+            pass
         except Exception as e:
             self.report_error(str(e))
         finally:
@@ -177,9 +281,18 @@ class DownloadWorker(BackgroundWorker):
 class RetryWorker(BackgroundWorker):
     def __init__(
         self, downloader: Downloader, volumes, selected_volume_names,
-        novel_info, config: ConfigManager, message_queue: queue.Queue
+        novel_info, config: ConfigManager, message_queue: queue.Queue, owner=None
     ):
-        super().__init__(message_queue)
+        super().__init__(
+            message_queue,
+            owner=owner,
+            task_title=f"重试 {getattr(novel_info, 'title', '') or '作品'}",
+            input_snapshot=TaskInputSnapshot(
+                kind="retry",
+                selected_volumes=tuple(sorted(selected_volume_names)),
+                output_dir=config.output_dir,
+            ),
+        )
         self.downloader = downloader
         self.volumes = volumes
         self.selected_volume_names = selected_volume_names
@@ -189,6 +302,7 @@ class RetryWorker(BackgroundWorker):
     def run(self):
         session = None
         try:
+            self.downloader.cancel_callback = self.is_cancelled
             self.report_progress("正在启动浏览器用于重试...")
             session = BrowserSession(
                 headless=self.config.headless,
@@ -197,6 +311,8 @@ class RetryWorker(BackgroundWorker):
                 geoip=self.config.geoip,
                 profile_dir=self.config.profile_dir,
                 progress_callback=self.report_progress,
+                cancel_event=self._cancel_flag,
+                profile_wait_callback=self.report_profile_wait,
             )
             session.start()
 
@@ -218,6 +334,8 @@ class RetryWorker(BackgroundWorker):
             verification = self.downloader.verify_all(self.volumes, self.selected_volume_names)
 
             self.report_result((result, verification, self.downloader))
+        except DownloadCancelled:
+            pass
         except Exception as e:
             self.report_error(str(e))
         finally:
@@ -230,8 +348,13 @@ class RetryWorker(BackgroundWorker):
 
 
 class ExportWorker(BackgroundWorker):
-    def __init__(self, novel_info, volumes, base_dir: str, per_volume: bool, message_queue: queue.Queue):
-        super().__init__(message_queue)
+    def __init__(self, novel_info, volumes, base_dir: str, per_volume: bool, message_queue: queue.Queue, owner=None):
+        super().__init__(
+            message_queue,
+            owner=owner,
+            task_title=f"导出 {getattr(novel_info, 'title', '') or '作品'}",
+            input_snapshot=TaskInputSnapshot(kind="export", output_dir=base_dir),
+        )
         self.novel_info = novel_info
         self.volumes = volumes
         self.base_dir = base_dir
@@ -252,8 +375,17 @@ class ExportWorker(BackgroundWorker):
 
 
 class VerifyWorker(BackgroundWorker):
-    def __init__(self, volumes, selected_volume_names, output_dir: str, message_queue: queue.Queue):
-        super().__init__(message_queue)
+    def __init__(self, volumes, selected_volume_names, output_dir: str, message_queue: queue.Queue, owner=None):
+        super().__init__(
+            message_queue,
+            owner=owner,
+            task_title="校验下载内容",
+            input_snapshot=TaskInputSnapshot(
+                kind="verify",
+                selected_volumes=tuple(sorted(selected_volume_names)),
+                output_dir=output_dir,
+            ),
+        )
         self.volumes = volumes
         self.selected_volume_names = selected_volume_names
         self.output_dir = output_dir
@@ -268,28 +400,6 @@ class VerifyWorker(BackgroundWorker):
             self.report_error(str(e))
         finally:
             self.report_done()
-
-
-def _warmup_page_is_ready(session) -> bool:
-    try:
-        html = session.content() or ""
-    except Exception:
-        return False
-    if is_cloudflare_challenge(html):
-        return False
-
-    text = re.sub(r"<[^>]+>", " ", html).strip()
-    compact_html = html.lower()
-    if len(text) >= 20:
-        return True
-    return any(marker in compact_html for marker in (
-        "linovelib",
-        "/novel/",
-        "/s6/",
-        "轻小说",
-        "小說",
-        "小说",
-    ))
 
 
 def _page_has_content(session) -> bool:
@@ -395,8 +505,13 @@ def perform_cloudflare_warmup(session, timeout_ms: int = 600000, progress_callba
 
 
 class WarmupWorker(BackgroundWorker):
-    def __init__(self, config: ConfigManager, message_queue: queue.Queue):
-        super().__init__(message_queue)
+    def __init__(self, config: ConfigManager, message_queue: queue.Queue, owner=None):
+        super().__init__(
+            message_queue,
+            owner=owner,
+            task_title="验证浏览档案",
+            input_snapshot=TaskInputSnapshot(kind="warmup"),
+        )
         self.config = config
 
     def run(self):
@@ -411,6 +526,8 @@ class WarmupWorker(BackgroundWorker):
                 profile_dir=self.config.profile_dir,
                 progress_callback=self.report_progress,
                 humanize=False,
+                cancel_event=self._cancel_flag,
+                profile_wait_callback=self.report_profile_wait,
             )
             ok, message = perform_cloudflare_warmup(
                 session,
