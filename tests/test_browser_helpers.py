@@ -1,6 +1,7 @@
 import sys
 import types
 
+from linodl.core import browser as browser_module
 from linodl.core.browser import BASE_URL, BrowserSession, is_cloudflare_challenge
 from linodl.core.downloader import extract_image_urls
 from linodl.gui.workers import perform_cloudflare_warmup
@@ -21,6 +22,24 @@ def test_ignores_normal_chapter_html():
     html = '<div id="TextContent">正常章节正文</div>'
 
     assert not is_cloudflare_challenge(html)
+
+
+def test_generic_cloudflare_script_on_normal_page_is_not_a_challenge():
+    html = """
+    <html>
+      <body>
+        <h1>正常作品页</h1>
+        <a href="/novel/1.html">作品详情</a>
+        <script src="/cdn-cgi/challenge-platform/scripts/jsd/main.js"></script>
+      </body>
+    </html>
+    """
+
+    assert browser_module.assess_challenge(html) is browser_module.ChallengeState.NORMAL
+
+
+def test_blank_html_has_unknown_challenge_state():
+    assert browser_module.assess_challenge("") is browser_module.ChallengeState.UNKNOWN
 
 
 def test_extract_image_urls_filters_loading_placeholders():
@@ -137,6 +156,31 @@ def test_start_cloak_uses_cloakbrowser_fingerprint_defaults_without_custom_ua(mo
     assert captured["kwargs"]["humanize"] is True
     assert captured["kwargs"]["human_preset"] == "careful"
     assert captured["kwargs"]["headless"] is True
+
+
+def test_start_cloak_geoip_omits_locale_and_custom_viewport(monkeypatch, tmp_path):
+    captured = {}
+
+    def fake_launch_persistent_context(profile_path, **kwargs):
+        captured["profile_path"] = profile_path
+        captured["kwargs"] = kwargs
+        return _LaunchContext()
+
+    fake_module = types.SimpleNamespace(launch_persistent_context=fake_launch_persistent_context)
+    monkeypatch.setitem(sys.modules, "cloakbrowser", fake_module)
+
+    session = BrowserSession(
+        profile_dir=str(tmp_path),
+        anti_bot_mode="cloak",
+        proxy="socks5://127.0.0.1:1080",
+        geoip=True,
+    )
+    session._start_cloak()
+
+    assert captured["kwargs"]["geoip"] is True
+    assert captured["kwargs"]["proxy"] == "socks5://127.0.0.1:1080"
+    assert "locale" not in captured["kwargs"]
+    assert "viewport" not in captured["kwargs"]
 
 
 class _BlankWarmupSession:

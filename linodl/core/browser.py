@@ -6,6 +6,7 @@ import hashlib
 import os
 import sys
 import time
+from enum import Enum
 from pathlib import Path
 from typing import Callable
 
@@ -37,10 +38,19 @@ Object.defineProperty(navigator, 'languages', { get: () => ['zh-CN', 'zh', 'en']
 """
 
 
-def is_cloudflare_challenge(html: str | None) -> bool:
-    """Return True when the page looks like a Cloudflare/Turnstile challenge."""
-    if not html:
-        return False
+class ChallengeState(str, Enum):
+    """Classification of the browser page returned by an anti-bot check."""
+
+    NORMAL = "normal"
+    CHALLENGE = "challenge"
+    UNKNOWN = "unknown"
+
+
+def assess_challenge(html: str | None) -> ChallengeState:
+    """Classify page HTML without treating Cloudflare's generic JS as a block."""
+    if not html or not html.strip():
+        return ChallengeState.UNKNOWN
+
     text = html.lower()
     strong_markers = (
         "just a moment",
@@ -48,19 +58,26 @@ def is_cloudflare_challenge(html: str | None) -> bool:
         "cf-challenge",
         "checking your browser",
         "verify you are human",
+        "cf-turnstile",
     )
     if any(marker in text for marker in strong_markers):
-        return True
+        return ChallengeState.CHALLENGE
 
-    has_normal_content = (
+    if (
         'id="textcontent"' in text
         or '<div class="volume clearfix">' in text
         or "/novel/" in text and "<h1" in text
-    )
-    if has_normal_content:
-        return False
+        or "<html" in text
+        or "<body" in text
+    ):
+        return ChallengeState.NORMAL
 
-    return "cf-turnstile" in text or "cdn-cgi/challenge-platform" in text
+    return ChallengeState.UNKNOWN
+
+
+def is_cloudflare_challenge(html: str | None) -> bool:
+    """Return True only for HTML with strong challenge evidence."""
+    return assess_challenge(html) is ChallengeState.CHALLENGE
 
 
 class BrowserSession:
@@ -384,6 +401,28 @@ class BrowserSession:
         from cloakbrowser import launch_persistent_context
 
         profile_path = self._profile_path("cloak")
+        kwargs = self._cloak_launch_kwargs()
+
+        try:
+            self.context = launch_persistent_context(profile_path, **kwargs)
+        except TypeError as exc:
+            message = str(exc)
+            if "humanize" not in message and "human_preset" not in message:
+                raise
+            # Older CloakBrowser versions don't support humanize.
+            kwargs.pop("humanize", None)
+            kwargs.pop("human_preset", None)
+            self._report(
+                "WARNING: humanize not supported by this CloakBrowser version. "
+                "Browser will run without human-like input simulation."
+            )
+            self.context = launch_persistent_context(profile_path, **kwargs)
+
+        self.engine = "cloak"
+        self._set_default_page()
+
+    def _cloak_launch_kwargs(self) -> dict:
+        profile_path = self._profile_path("cloak")
         # Deterministic fingerprint seed per profile path for consistency.
         fingerprint_seed = str(
             int(hashlib.md5(profile_path.encode()).hexdigest()[:8], 16) % 90000 + 10000
@@ -391,30 +430,16 @@ class BrowserSession:
 
         kwargs = {
             "headless": self.headless,
-            "viewport": DEFAULT_VIEWPORT,
-            "locale": "zh-CN",
             "args": [f"--fingerprint={fingerprint_seed}"],
             "humanize": self.humanize,
             "human_preset": "careful",
         }
         if self.proxy:
             kwargs["proxy"] = self.proxy
-        if self.geoip:
-            kwargs["geoip"] = True
-
-        try:
-            self.context = launch_persistent_context(profile_path, **kwargs)
-        except TypeError:
-            # Older CloakBrowser versions don't support humanize.
-            kwargs.pop("humanize", None)
-            kwargs.pop("human_preset", None)
-            self._report(
-                "WARNING: humanize not supported by this CloakBrowser version. "
-                "Browser will run without human-like input simulation, "
-                "making Cloudflare detection more likely. "
-                "Upgrade: pip install --upgrade cloakbrowser"
-            )
-            self.context = launch_persistent_context(profile_path, **kwargs)
-
-        self.engine = "cloak"
-        self._set_default_page()
+            if self.geoip:
+                kwargs["geoip"] = True
+            else:
+                kwargs["locale"] = "zh-CN"
+        else:
+            kwargs["locale"] = "zh-CN"
+        return kwargs
