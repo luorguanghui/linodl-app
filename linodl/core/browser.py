@@ -96,6 +96,7 @@ class BrowserSession:
         humanize: bool = True,
         cancel_event=None,
         profile_wait_callback: Callable[[str], None] | None = None,
+        verification_callback: Callable[[str, str], bool] | None = None,
     ):
         self.headless = headless
         self.anti_bot_mode = anti_bot_mode if anti_bot_mode in {"auto", "playwright", "cloak"} else "auto"
@@ -106,6 +107,7 @@ class BrowserSession:
         self.humanize = humanize
         self.cancel_event = cancel_event
         self.profile_wait_callback = profile_wait_callback
+        self.verification_callback = verification_callback
 
         self.engine = ""
         self._playwright = None
@@ -239,6 +241,18 @@ class BrowserSession:
 
         if not self.page_has_challenge():
             return True
+
+        if self.headless and self.verification_callback is not None:
+            self._report(
+                "检测到页面验证，正在打开可见 CloakBrowser。"
+                f"{f' ({reason})' if reason else ''}"
+            )
+            self.close()
+            if not self.verification_callback(url, reason):
+                return False
+            self.start(prefer_cloak=True)
+            self.page.goto(url, timeout=45000, wait_until="domcontentloaded")
+            return assess_challenge(self.content()) is ChallengeState.NORMAL
 
         previous_engine = self.engine
         if not self.ensure_cloak(reason):

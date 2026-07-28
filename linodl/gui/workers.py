@@ -11,6 +11,10 @@ from ..core.auth import login, check_logged_in
 from ..core.downloader import DownloadCancelled, Downloader, sanitize
 from ..core.epub import EpubExporter
 from .tasks import TaskInputSnapshot, TaskStatus, TaskStore, task_store
+from .verification import VerificationService
+
+
+verification_service = VerificationService()
 
 
 class BackgroundWorker(threading.Thread):
@@ -84,6 +88,33 @@ class BackgroundWorker(threading.Thread):
         )
         self._queue.put(("progress", msg, self._owner))
 
+    def verify_challenge(self, target_url: str, reason: str = "") -> bool:
+        message = "等待用户完成浏览器验证"
+        self._task_store.transition(
+            self._task_id,
+            TaskStatus.WAITING_FOR_VERIFICATION,
+            message,
+        )
+        self._queue.put(("progress", message, self._owner))
+        result = verification_service.verify(
+            target_url,
+            self.config,
+            self._cancel_flag,
+            self.report_progress,
+        )
+        if result.cancelled:
+            self.cancel()
+            return False
+        if not result.passed:
+            raise RuntimeError(result.message)
+        self._task_store.transition(
+            self._task_id,
+            TaskStatus.RUNNING,
+            result.message,
+        )
+        self._queue.put(("progress", result.message, self._owner))
+        return True
+
     def report_result(self, data):
         self._outcome = TaskStatus.COMPLETED
         self._queue.put(("result", data, self._owner))
@@ -137,6 +168,7 @@ class SearchWorker(BackgroundWorker):
                 progress_callback=self.report_progress,
                 cancel_event=self._cancel_flag,
                 profile_wait_callback=self.report_profile_wait,
+                verification_callback=self.verify_challenge,
             )
             session.start()
             self.report_progress(f"正在搜索: {self.keyword}")
@@ -178,6 +210,7 @@ class CatalogWorker(BackgroundWorker):
                 progress_callback=self.report_progress,
                 cancel_event=self._cancel_flag,
                 profile_wait_callback=self.report_profile_wait,
+                verification_callback=self.verify_challenge,
             )
             session.start()
             html = fetch_catalog(self.url, browser_session=session)
@@ -227,6 +260,7 @@ class DownloadWorker(BackgroundWorker):
                 progress_callback=self.report_progress,
                 cancel_event=self._cancel_flag,
                 profile_wait_callback=self.report_profile_wait,
+                verification_callback=self.verify_challenge,
             )
             session.start()
 
@@ -313,6 +347,7 @@ class RetryWorker(BackgroundWorker):
                 progress_callback=self.report_progress,
                 cancel_event=self._cancel_flag,
                 profile_wait_callback=self.report_profile_wait,
+                verification_callback=self.verify_challenge,
             )
             session.start()
 
@@ -485,8 +520,6 @@ def perform_cloudflare_warmup(session, timeout_ms: int = 600000, progress_callba
         return False, "Cloudflare 验证超时。"
     if not _wait_for_page_ready(session):
         return False, "页面未加载完成，请重新点击预热并等待页面显示后再结束。"
-    if not _wait_for_clearance_cookie(session, timeout_ms, progress):
-        return False, "首页验证 cookie 未保存，请重新预热并手动完成人机验证。"
 
     search_url = f"{BASE_URL}/S6/"
     progress("首页已通过，正在尝试打开搜索页确认 profile 可复用...")

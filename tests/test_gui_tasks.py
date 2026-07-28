@@ -135,3 +135,117 @@ def test_search_worker_cancels_while_waiting_for_profile(monkeypatch, tmp_path):
     finally:
         holder.close()
         worker.join(0.5)
+
+
+def test_verification_service_uses_visible_cloak_and_rechecks_target():
+    from linodl.gui.verification import VerificationService
+
+    class FakeSession:
+        def __init__(self):
+            self.goto_urls = []
+            self.contents = [
+                "<html><div class='cf-turnstile'>verify you are human</div></html>",
+                '<html><a href="/novel/1.html">正常内容</a></html>',
+                '<html><a href="/novel/1.html">正常内容</a></html>',
+            ]
+            self.closed = False
+
+        def start(self, prefer_cloak=False):
+            self.prefer_cloak = prefer_cloak
+            return self
+
+        def goto(self, url, timeout=30000, wait_until="domcontentloaded"):
+            self.goto_urls.append(url)
+
+        def content(self):
+            if len(self.contents) > 1:
+                return self.contents.pop(0)
+            return self.contents[0]
+
+        def close(self):
+            self.closed = True
+
+    created = {}
+
+    def session_factory(**kwargs):
+        created["kwargs"] = kwargs
+        created["session"] = FakeSession()
+        return created["session"]
+
+    config = types.SimpleNamespace(
+        proxy="",
+        geoip=False,
+        profile_dir="profile",
+    )
+    result = VerificationService(
+        session_factory=session_factory,
+        poll_interval=0,
+    ).verify(
+        "https://www.linovelib.com/",
+        config,
+        threading.Event(),
+        lambda message: None,
+        timeout_ms=50,
+    )
+
+    assert created["kwargs"]["headless"] is False
+    assert created["kwargs"]["anti_bot_mode"] == "cloak"
+    assert created["session"].goto_urls == [
+        "https://www.linovelib.com/",
+        "https://www.linovelib.com/",
+    ]
+    assert created["session"].closed is True
+    assert result.passed is True
+
+
+def test_verification_service_returns_cancelled_before_opening_browser():
+    from linodl.gui.verification import VerificationService
+
+    cancel = threading.Event()
+    cancel.set()
+    opened = []
+    config = types.SimpleNamespace(proxy="", geoip=False, profile_dir="profile")
+
+    result = VerificationService(
+        session_factory=lambda **kwargs: opened.append(kwargs)
+    ).verify(
+        "https://www.linovelib.com/",
+        config,
+        cancel,
+        lambda message: None,
+    )
+
+    assert opened == []
+    assert result.cancelled is True
+    assert result.passed is False
+
+
+def test_worker_returns_to_running_after_visible_verification(monkeypatch):
+    from linodl.gui import workers as workers_module
+    from linodl.gui.tasks import TaskStatus
+    from linodl.gui.verification import VerificationResult
+
+    class PassingService:
+        def verify(self, target_url, config, cancel_event, progress):
+            assert target_url == "https://www.linovelib.com/"
+            assert cancel_event.is_set() is False
+            return VerificationResult(
+                passed=True,
+                message="验证已通过，正在恢复原任务。",
+            )
+
+    monkeypatch.setattr(workers_module, "verification_service", PassingService(), raising=False)
+    worker = workers_module.SearchWorker(
+        "测试",
+        types.SimpleNamespace(),
+        queue.Queue(),
+    )
+    worker._task_store.transition(
+        worker.task.id,
+        TaskStatus.RUNNING,
+        "正在搜索",
+    )
+
+    assert worker.verify_challenge("https://www.linovelib.com/", "search-home")
+    assert worker.task.status is TaskStatus.RUNNING
+    assert worker.task.detail == "验证已通过，正在恢复原任务。"

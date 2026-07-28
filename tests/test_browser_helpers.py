@@ -131,6 +131,52 @@ def test_navigate_with_challenge_retry_reopens_url_after_switching_to_cloak():
     assert session.goto_urls == [("playwright", BASE_URL), ("cloak", BASE_URL)]
 
 
+class _HeadlessVerificationSession(BrowserSession):
+    def __init__(self, verification_callback):
+        super().__init__(
+            headless=True,
+            anti_bot_mode="cloak",
+            verification_callback=verification_callback,
+        )
+        self.goto_urls = []
+        self.verified = False
+
+    def start(self, prefer_cloak=False):
+        self.engine = "cloak"
+        self.context = _FakeContext()
+        self.page = self
+        return self
+
+    def close(self):
+        self.context = None
+        self.page = None
+        self.engine = ""
+
+    def goto(self, url, timeout=30000, wait_until="domcontentloaded"):
+        self.goto_urls.append(url)
+
+    def content(self):
+        if self.verified:
+            return '<html><a href="/novel/1.html">正常内容</a></html>'
+        return "<html><title>Just a moment...</title><div>verify you are human</div></html>"
+
+
+def test_headless_challenge_uses_visible_verification_callback_then_resumes():
+    calls = []
+    session = None
+
+    def verify(url, reason):
+        calls.append((url, reason))
+        session.verified = True
+        return True
+
+    session = _HeadlessVerificationSession(verify)
+
+    assert session.navigate_with_challenge_retry(BASE_URL, "search-home", timeout_ms=50)
+    assert calls == [(BASE_URL, "search-home")]
+    assert session.goto_urls == [BASE_URL, BASE_URL]
+
+
 class _LaunchContext:
     pages = []
 
@@ -237,6 +283,18 @@ def test_cloudflare_warmup_confirms_search_page_before_success():
     assert ok is True
     assert "验证成功完成" in message
     assert session.goto_urls == [BASE_URL, f"{BASE_URL}/S6/"]
+
+
+def test_cloudflare_warmup_accepts_normal_pages_without_clearance_cookie():
+    session = _BlankWarmupSession(
+        '<html><body><a href="/novel/1/catalog">linovelib 小说搜索入口</a></body></html>'
+    )
+    session._has_cloudflare_clearance = lambda: False
+
+    ok, message = perform_cloudflare_warmup(session, timeout_ms=20)
+
+    assert ok is True
+    assert "浏览器档案已保存" in message
 
 
 class _SearchChallengeWarmupSession(_BlankWarmupSession):
