@@ -17,6 +17,7 @@ class VerifyPanel(ctk.CTkFrame):
         self._queue = message_queue
         self._subdirs = []
         self._dir_check_vars = []
+        self._worker = None
 
         ctk.CTkLabel(self, text="校验下载", font=style.title_font()).pack(
             anchor="w", padx=style.PAD_X, pady=(16, 8))
@@ -178,7 +179,8 @@ class VerifyPanel(ctk.CTkFrame):
         self._status_label.configure(text=f"校验失败: {msg}", text_color=style.COLOR_DANGER)
 
     def is_busy(self):
-        return self._worker is not None and self._worker.is_alive()
+        worker = getattr(self, "_worker", None)
+        return worker is not None and worker.is_alive()
 
     def _build_volume_from_directory(self, output_dir, directory):
         vol_path = os.path.join(output_dir, directory)

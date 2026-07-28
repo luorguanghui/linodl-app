@@ -16,6 +16,7 @@ class ExportPanel(ctk.CTkFrame):
         self._queue = message_queue
         self._subdirs = []
         self._dir_check_vars = []
+        self._worker = None
 
         ctk.CTkLabel(self, text="导出 EPUB", font=style.title_font()).pack(
             anchor="w", padx=style.PAD_X, pady=(16, 8))
@@ -172,7 +173,8 @@ class ExportPanel(ctk.CTkFrame):
         self._status_label.configure(text=f"导出失败: {msg}", text_color=style.COLOR_DANGER)
 
     def is_busy(self):
-        return self._worker is not None and self._worker.is_alive()
+        worker = getattr(self, "_worker", None)
+        return worker is not None and worker.is_alive()
 
     def _build_from_directories(self, output_dir, selected_dirs):
         title = selected_dirs[0] if len(selected_dirs) == 1 else self._derive_batch_title(selected_dirs)

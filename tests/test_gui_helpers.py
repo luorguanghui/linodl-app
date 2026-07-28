@@ -133,6 +133,16 @@ def test_is_busy_returns_false_when_no_worker():
     assert panel.is_busy() is False
 
 
+def test_lazy_panels_report_not_busy_before_first_worker():
+    """Panels that have not started work must be safe to poll immediately."""
+    from linodl.gui.panels.export_panel import ExportPanel
+    from linodl.gui.panels.verify_panel import VerifyPanel
+
+    for panel_type in (ExportPanel, VerifyPanel):
+        panel = panel_type.__new__(panel_type)
+        assert panel.is_busy() is False
+
+
 def test_is_busy_returns_true_while_worker_alive():
     """is_busy() should return True while the worker thread is alive."""
     import queue
