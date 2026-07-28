@@ -9,6 +9,7 @@ from typing import Callable
 
 from ..config.manager import ConfigManager
 from ..core.browser import BrowserSession, ChallengeState, assess_challenge
+from ..core.sanitization import redact_sensitive_text
 
 
 @dataclass(frozen=True)
@@ -95,7 +96,7 @@ class VerificationService:
                 )
             return VerificationResult(
                 False,
-                message=f"可见浏览器验证失败: {exc}",
+                message=f"可见浏览器验证失败: {redact_sensitive_text(exc)}",
             )
         finally:
             session.close()

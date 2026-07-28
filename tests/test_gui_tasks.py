@@ -249,3 +249,54 @@ def test_worker_returns_to_running_after_visible_verification(monkeypatch):
     assert worker.verify_challenge("https://www.linovelib.com/", "search-home")
     assert worker.task.status is TaskStatus.RUNNING
     assert worker.task.detail == "验证已通过，正在恢复原任务。"
+
+
+def test_sensitive_error_text_is_redacted():
+    from linodl.core.sanitization import redact_sensitive_text
+
+    message = (
+        "proxy socks5://reader:secret@127.0.0.1:1080 failed; "
+        "token=abcd1234 password=hunter2 cf_clearance=cookie-value"
+    )
+
+    redacted = redact_sensitive_text(message)
+
+    assert "reader" not in redacted
+    assert "secret" not in redacted
+    assert "abcd1234" not in redacted
+    assert "hunter2" not in redacted
+    assert "cookie-value" not in redacted
+    assert "socks5://***:***@127.0.0.1:1080" in redacted
+
+
+def test_download_worker_snapshot_keeps_catalog_url():
+    from linodl.gui.workers import DownloadWorker
+
+    config = types.SimpleNamespace(output_dir="books")
+    novel = types.SimpleNamespace(
+        title="测试作品",
+        catalog_url="https://www.linovelib.com/novel/1/catalog",
+    )
+    worker = DownloadWorker(
+        [],
+        {"第一卷"},
+        novel,
+        config,
+        queue.Queue(),
+    )
+
+    assert worker.task.input_snapshot.url == novel.catalog_url
+
+
+def test_task_actions_offer_cancel_or_restore():
+    from linodl.gui.tasks import TaskStatus, TaskStore
+    from linodl.gui.widgets.task_center import task_actions
+
+    store = TaskStore()
+    running = store.create("运行中")
+    failed = store.create("失败")
+    store.transition(running.id, TaskStatus.RUNNING, "下载中")
+    store.transition(failed.id, TaskStatus.FAILED, "网络错误")
+
+    assert task_actions(store.get(running.id)) == ("cancel",)
+    assert task_actions(store.get(failed.id)) == ("restore",)

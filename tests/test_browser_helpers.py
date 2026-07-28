@@ -1,4 +1,6 @@
 import sys
+import threading
+import time
 import types
 
 from linodl.core import browser as browser_module
@@ -40,6 +42,23 @@ def test_generic_cloudflare_script_on_normal_page_is_not_a_challenge():
 
 def test_blank_html_has_unknown_challenge_state():
     assert browser_module.assess_challenge("") is browser_module.ChallengeState.UNKNOWN
+
+
+def test_generic_error_page_has_unknown_challenge_state():
+    html = "<html><body><h1>503 Service Unavailable</h1></body></html>"
+
+    assert browser_module.assess_challenge(html) is browser_module.ChallengeState.UNKNOWN
+
+
+def test_dormant_turnstile_script_does_not_override_normal_content():
+    html = """
+    <html><body>
+      <h1>正常作品页</h1><a href="/novel/1.html">作品详情</a>
+      <script>window.turnstileApi = "cf-turnstile";</script>
+    </body></html>
+    """
+
+    assert browser_module.assess_challenge(html) is browser_module.ChallengeState.NORMAL
 
 
 def test_extract_image_urls_filters_loading_placeholders():
@@ -175,6 +194,41 @@ def test_headless_challenge_uses_visible_verification_callback_then_resumes():
     assert session.navigate_with_challenge_retry(BASE_URL, "search-home", timeout_ms=50)
     assert calls == [(BASE_URL, "search-home")]
     assert session.goto_urls == [BASE_URL, BASE_URL]
+
+
+class _UnknownPageSession(BrowserSession):
+    def start(self, prefer_cloak=False):
+        self.engine = "cloak"
+        self.context = _FakeContext()
+        self.page = self
+        return self
+
+    def goto(self, url, timeout=30000, wait_until="domcontentloaded"):
+        self.url = url
+
+    def content(self):
+        return "<html><body><h1>503 Service Unavailable</h1></body></html>"
+
+
+def test_navigation_does_not_accept_unknown_page_as_success():
+    session = _UnknownPageSession()
+
+    assert session.navigate_with_challenge_retry(BASE_URL, timeout_ms=20) is False
+
+
+def test_challenge_wait_stops_immediately_when_cancelled():
+    cancel = threading.Event()
+    cancel.set()
+    session = BrowserSession(cancel_event=cancel)
+    session.engine = "cloak"
+    session.context = _FakeContext()
+    session.page = _ChallengeThenClearPage()
+
+    started = time.monotonic()
+    result = session.wait_for_challenge_clear(timeout_ms=300000, poll_ms=1000)
+
+    assert result is False
+    assert time.monotonic() - started < 0.2
 
 
 class _LaunchContext:

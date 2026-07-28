@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Callable
 
 from .profile_coordinator import profile_coordinator
+from .sanitization import redact_sensitive_text
 
 # Use vendored cloakbrowser instead of system-installed version.
 _VENDOR_DIR = str(Path(__file__).resolve().parent.parent.parent / "vendor")
@@ -54,24 +55,34 @@ def assess_challenge(html: str | None) -> ChallengeState:
         return ChallengeState.UNKNOWN
 
     text = html.lower()
-    strong_markers = (
-        "just a moment",
-        "cf-browser-verify",
-        "cf-challenge",
-        "checking your browser",
-        "verify you are human",
-        "cf-turnstile",
+    title_challenge_markers = (
+        "<title>just a moment",
+        "<title>checking your browser",
+        "<title>attention required",
     )
-    if any(marker in text for marker in strong_markers):
+    if any(marker in text for marker in title_challenge_markers):
         return ChallengeState.CHALLENGE
 
-    if (
+    normal_content = (
         'id="textcontent"' in text
         or '<div class="volume clearfix">' in text
         or "/novel/" in text and "<h1" in text
-        or "<html" in text
-        or "<body" in text
-    ):
+        or 'href="/novel/' in text
+        or "linovelib" in text and len(text) >= 200
+    )
+    challenge_score = sum(
+        (
+            "cf-browser-verify" in text,
+            "cf-challenge" in text,
+            "cf-turnstile" in text,
+            "verify you are human" in text or "验证您是真人" in text,
+            "checking your browser" in text,
+            "/cdn-cgi/challenge-platform/" in text,
+        )
+    )
+    if challenge_score >= 2:
+        return ChallengeState.CHALLENGE
+    if normal_content:
         return ChallengeState.NORMAL
 
     return ChallengeState.UNKNOWN
@@ -123,6 +134,7 @@ class BrowserSession:
         self.close()
 
     def _report(self, message: str):
+        message = redact_sensitive_text(message)
         if self.progress_callback:
             self.progress_callback(message)
         else:
@@ -239,8 +251,15 @@ class BrowserSession:
             )
             return False
 
-        if not self.page_has_challenge():
+        challenge_state = self.page_challenge_state()
+        if challenge_state is ChallengeState.NORMAL:
             return True
+        if challenge_state is ChallengeState.UNKNOWN:
+            self._report(
+                "页面内容无法确认，已停止当前导航。"
+                f"{f' ({reason})' if reason else ''}"
+            )
+            return False
 
         if self.headless and self.verification_callback is not None:
             self._report(
@@ -260,13 +279,13 @@ class BrowserSession:
 
         if previous_engine != "cloak":
             self.page.goto(url, timeout=45000, wait_until="domcontentloaded")
-            if not self.page_has_challenge():
+            if self.page_challenge_state() is ChallengeState.NORMAL:
                 return True
 
         if not self.wait_for_challenge_clear(reason, timeout_ms, target_url=url):
             return False
 
-        if not self.page_has_challenge():
+        if self.page_challenge_state() is ChallengeState.NORMAL:
             self._report(
                 "verification passed, page content revealed"
                 f"{f' ({reason})' if reason else ''}"
@@ -282,7 +301,7 @@ class BrowserSession:
             self.page.wait_for_load_state("domcontentloaded", timeout=5000)
         except Exception:
             pass
-        return not self.page_has_challenge()
+        return self.page_challenge_state() is ChallengeState.NORMAL
 
     def goto(self, url: str, timeout: int = 30000, wait_until: str = "domcontentloaded"):
         self.start()
@@ -293,10 +312,13 @@ class BrowserSession:
         return self.page.content()
 
     def page_has_challenge(self) -> bool:
+        return self.page_challenge_state() is ChallengeState.CHALLENGE
+
+    def page_challenge_state(self) -> ChallengeState:
         try:
-            return is_cloudflare_challenge(self.content())
+            return assess_challenge(self.content())
         except Exception:
-            return False
+            return ChallengeState.UNKNOWN
 
     def wait_for_challenge_clear(
         self,
@@ -310,13 +332,17 @@ class BrowserSession:
         CloakBrowser with humanize=True in headed mode can auto-resolve
         Turnstile. We wait briefly for auto-resolve, then ask the user
         to click if the challenge persists."""
-        if not self.page_has_challenge():
+        initial_state = self.page_challenge_state()
+        if initial_state is ChallengeState.NORMAL:
             return True
+        if initial_state is ChallengeState.UNKNOWN or self._is_cancelled():
+            return False
         if self.engine != "cloak":
             return False
 
         # Brief pause to let challenge page fully render before checking cookies.
-        time.sleep(2)
+        if self._wait_or_cancel(2):
+            return False
 
         # Try reopening once if a valid clearance cookie already exists.
         if self._reopen_target_after_clearance(target_url, reason):
@@ -330,9 +356,10 @@ class BrowserSession:
             )
             auto_deadline = time.time() + 15
             while time.time() < auto_deadline:
-                time.sleep(poll_ms / 1000)
+                if self._wait_or_cancel(poll_ms / 1000):
+                    return False
                 try:
-                    if not self.page_has_challenge():
+                    if self.page_challenge_state() is ChallengeState.NORMAL:
                         self._report("cloudflare_retry: auto-resolved verification")
                         return True
                 except Exception:
@@ -345,9 +372,10 @@ class BrowserSession:
         )
         deadline = time.time() + timeout_ms / 1000
         while time.time() < deadline:
-            time.sleep(poll_ms / 1000)
+            if self._wait_or_cancel(poll_ms / 1000):
+                return False
             try:
-                if not self.page_has_challenge():
+                if self.page_challenge_state() is ChallengeState.NORMAL:
                     self._report("cloudflare_retry: verification passed")
                     # Navigate to target URL after verification so the saved
                     # profile picks up the new clearance cookie.
@@ -364,6 +392,15 @@ class BrowserSession:
             "已保存的 CloakBrowser profile 会继续复用:\n"
             f"  {self._profile_path('cloak')}"
         )
+        return False
+
+    def _is_cancelled(self) -> bool:
+        return bool(self.cancel_event is not None and self.cancel_event.is_set())
+
+    def _wait_or_cancel(self, seconds: float) -> bool:
+        if self.cancel_event is not None:
+            return self.cancel_event.wait(seconds)
+        time.sleep(seconds)
         return False
 
     def _has_cloudflare_clearance(self) -> bool:
@@ -406,7 +443,7 @@ class BrowserSession:
             f"{f' ({reason})' if reason else ''}"
         )
         self.page.goto(target_url, timeout=45000, wait_until="domcontentloaded")
-        return not self.page_has_challenge()
+        return self.page_challenge_state() is ChallengeState.NORMAL
 
     def _profile_path(self, engine: str) -> str:
         path = Path(os.path.expanduser(self.profile_dir)) / engine

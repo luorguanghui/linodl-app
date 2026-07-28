@@ -10,7 +10,8 @@ import customtkinter as ctk
 from ...models.novel import NovelInfo
 from .. import style
 from ..directory_scan import scan_download_directories
-from ..tasks import task_store
+from ..tasks import TaskStatus, task_store
+from ..workers import cancel_task
 from ..widgets.task_center import TaskCenter
 from ..widgets.workflow_steps import WorkflowSteps
 from .download_panel import DownloadPanel
@@ -36,6 +37,7 @@ class WorkbenchPanel(ctk.CTkFrame):
         self._config = config
         self._queue = message_queue
         self._active_body = None
+        self._profile_health_default = ("正在检测浏览档案", "neutral")
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(2, weight=1)
@@ -66,11 +68,11 @@ class WorkbenchPanel(ctk.CTkFrame):
 
         self._profile_badge = ctk.CTkLabel(
             header,
-            text="● 浏览档案可用",
+            text="○ 正在检测浏览档案",
             height=30,
             corner_radius=15,
-            fg_color=style.COLOR_SUCCESS_SOFT,
-            text_color=style.COLOR_SUCCESS,
+            fg_color=style.COLOR_CARD_ELEVATED,
+            text_color=style.COLOR_MUTED,
             font=ctk.CTkFont(size=12, weight="bold"),
         )
         self._profile_badge.grid(row=0, column=1, sticky="e")
@@ -83,6 +85,7 @@ class WorkbenchPanel(ctk.CTkFrame):
             sticky="ew",
             pady=(18, 0),
         )
+        self.after(0, self._detect_profile_health)
 
     def _build_command_bar(self):
         command = ctk.CTkFrame(
@@ -186,7 +189,11 @@ class WorkbenchPanel(ctk.CTkFrame):
         self._recent_card.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         self._render_recent_archives()
 
-        self._task_center = TaskCenter(side)
+        self._task_center = TaskCenter(
+            side,
+            on_cancel=self._cancel_task,
+            on_restore=self.restore_task,
+        )
         self._task_center.grid(row=1, column=0, sticky="nsew")
 
     def _render_recent_archives(self):
@@ -286,13 +293,46 @@ class WorkbenchPanel(ctk.CTkFrame):
         self._download_panel.load_catalog(url)
 
     def refresh_tasks(self, records=None):
-        self._task_center.render(records if records is not None else task_store.snapshot())
+        records = records if records is not None else task_store.snapshot()
+        self._task_center.render(records)
+        statuses = {record.status for record in records}
+        if TaskStatus.WAITING_FOR_VERIFICATION in statuses:
+            self.set_profile_health("等待浏览验证", "warning")
+        elif TaskStatus.WAITING_FOR_PROFILE in statuses:
+            self.set_profile_health("浏览档案占用", "warning")
+        else:
+            self._show_default_profile_health()
+
+    def _cancel_task(self, task_id: str):
+        if not cancel_task(task_id):
+            self._show_input_error("该任务已经结束，无法再取消。")
+
+    def restore_task(self, record):
+        snapshot = record.input_snapshot
+        if snapshot is None:
+            self._show_input_error("该任务没有可恢复的输入。")
+            return
+        if snapshot.kind == "search" and snapshot.query:
+            self._entry.delete(0, "end")
+            self._entry.insert(0, snapshot.query)
+            self.show_search()
+            self._search_panel.start_search(snapshot.query)
+            return
+        if snapshot.url:
+            self._entry.delete(0, "end")
+            self._entry.insert(0, snapshot.url)
+            self._steps.set_active("volumes")
+            self._show_body(self._download_panel)
+            self._download_panel.restore_from_snapshot(snapshot)
+            return
+        self._show_input_error("任务输入不完整，请重新输入作品名或目录 URL。")
 
     def set_profile_health(self, text: str, level: str = "success"):
         colors = {
             "success": (style.COLOR_SUCCESS_SOFT, style.COLOR_SUCCESS),
             "warning": (style.COLOR_WARNING_SOFT, style.COLOR_WARNING),
             "danger": (style.COLOR_DANGER_SOFT, style.COLOR_DANGER),
+            "neutral": (style.COLOR_CARD_ELEVATED, style.COLOR_MUTED),
         }
         background, foreground = colors.get(level, colors["success"])
         self._profile_badge.configure(
@@ -300,6 +340,24 @@ class WorkbenchPanel(ctk.CTkFrame):
             fg_color=background,
             text_color=foreground,
         )
+
+    def _detect_profile_health(self):
+        try:
+            from ...core import browser as _browser  # noqa: F401
+            from cloakbrowser import binary_info
+
+            info = binary_info()
+            if info.get("installed"):
+                self._profile_health_default = ("浏览档案可用", "success")
+            else:
+                self._profile_health_default = ("浏览器内核未安装", "warning")
+        except Exception:
+            self._profile_health_default = ("浏览档案状态未知", "warning")
+        self._show_default_profile_health()
+
+    def _show_default_profile_health(self):
+        text, level = self._profile_health_default
+        self.set_profile_health(text, level)
 
     def is_busy(self):
         return self._search_panel.is_busy() or self._download_panel.is_busy()

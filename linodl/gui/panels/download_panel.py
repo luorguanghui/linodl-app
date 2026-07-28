@@ -31,6 +31,7 @@ class DownloadPanel(ctk.CTkFrame):
         self._worker = None
         self._export_worker = None
         self._volume_checkboxes = []
+        self._pending_selected_names = set()
 
         # Header
         self._header_frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -125,6 +126,15 @@ class DownloadPanel(ctk.CTkFrame):
         self._volumes = volumes
         self._novel_info = novel_info
         self._show_catalog()
+        if self._pending_selected_names:
+            for name, variable, _checkbox in self._volume_checkboxes:
+                if name in self._pending_selected_names:
+                    variable.set(True)
+            self._pending_selected_names.clear()
+
+    def restore_from_snapshot(self, snapshot):
+        self._pending_selected_names = set(snapshot.selected_volumes)
+        self.load_catalog(snapshot.url)
 
     def _show_catalog(self):
         self._title_label.configure(text=self._novel_info.title or "小说", text_color=("gray10", "gray90"))

@@ -2,6 +2,7 @@ import queue
 import re
 import threading
 import time
+import weakref
 
 from ..config.manager import ConfigManager
 from ..core.browser import BASE_URL, BrowserSession, is_cloudflare_challenge
@@ -10,11 +11,24 @@ from ..core.catalog import fetch_catalog, parse_catalog
 from ..core.auth import login, check_logged_in
 from ..core.downloader import DownloadCancelled, Downloader, sanitize
 from ..core.epub import EpubExporter
+from ..core.sanitization import redact_sensitive_text
 from .tasks import TaskInputSnapshot, TaskStatus, TaskStore, task_store
 from .verification import VerificationService
 
 
 verification_service = VerificationService()
+_worker_registry_lock = threading.RLock()
+_worker_registry = weakref.WeakValueDictionary()
+
+
+def cancel_task(task_id: str) -> bool:
+    """Request cancellation for the active worker owning a task id."""
+    with _worker_registry_lock:
+        worker = _worker_registry.get(task_id)
+    if worker is None or not worker.is_alive():
+        return False
+    worker.cancel()
+    return True
 
 
 class BackgroundWorker(threading.Thread):
@@ -38,6 +52,8 @@ class BackgroundWorker(threading.Thread):
         ).id
         self._outcome = None
         self._error_detail = ""
+        with _worker_registry_lock:
+            _worker_registry[self._task_id] = self
 
     @property
     def task(self):
@@ -120,6 +136,7 @@ class BackgroundWorker(threading.Thread):
         self._queue.put(("result", data, self._owner))
 
     def report_error(self, msg: str):
+        msg = redact_sensitive_text(msg)
         self._outcome = TaskStatus.FAILED
         self._error_detail = msg
         self._queue.put(("error", msg, self._owner))
@@ -238,6 +255,7 @@ class DownloadWorker(BackgroundWorker):
             task_title=f"下载 {getattr(novel_info, 'title', '') or '作品'}",
             input_snapshot=TaskInputSnapshot(
                 kind="download",
+                url=getattr(novel_info, "catalog_url", "") or "",
                 selected_volumes=tuple(sorted(selected_volume_names)),
                 output_dir=config.output_dir,
             ),
@@ -323,6 +341,7 @@ class RetryWorker(BackgroundWorker):
             task_title=f"重试 {getattr(novel_info, 'title', '') or '作品'}",
             input_snapshot=TaskInputSnapshot(
                 kind="retry",
+                url=getattr(novel_info, "catalog_url", "") or "",
                 selected_volumes=tuple(sorted(selected_volume_names)),
                 output_dir=config.output_dir,
             ),
