@@ -10,6 +10,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Callable
 
+from .profile_coordinator import profile_coordinator
+
 # Use vendored cloakbrowser instead of system-installed version.
 _VENDOR_DIR = str(Path(__file__).resolve().parent.parent.parent / "vendor")
 if _VENDOR_DIR not in sys.path:
@@ -92,6 +94,8 @@ class BrowserSession:
         profile_dir: str = "",
         progress_callback: Callable[[str], None] | None = None,
         humanize: bool = True,
+        cancel_event=None,
+        profile_wait_callback: Callable[[str], None] | None = None,
     ):
         self.headless = headless
         self.anti_bot_mode = anti_bot_mode if anti_bot_mode in {"auto", "playwright", "cloak"} else "auto"
@@ -100,11 +104,14 @@ class BrowserSession:
         self.profile_dir = profile_dir or str(Path.home() / ".linodl-browser")
         self.progress_callback = progress_callback
         self.humanize = humanize
+        self.cancel_event = cancel_event
+        self.profile_wait_callback = profile_wait_callback
 
         self.engine = ""
         self._playwright = None
         self.context = None
         self.page = None
+        self._profile_lease = None
 
     def __enter__(self) -> "BrowserSession":
         self.start()
@@ -126,10 +133,22 @@ class BrowserSession:
         use_cloak = self.anti_bot_mode == "cloak" or (
             prefer_cloak and self.anti_bot_mode != "playwright"
         )
-        if use_cloak:
-            self._start_cloak()
-        else:
-            self._start_playwright()
+        engine = "cloak" if use_cloak else "playwright"
+        lease = profile_coordinator.acquire(
+            self._profile_path(engine),
+            cancel_event=self.cancel_event,
+            wait_callback=self.profile_wait_callback,
+        )
+        lease.__enter__()
+        self._profile_lease = lease
+        try:
+            if use_cloak:
+                self._start_cloak()
+            else:
+                self._start_playwright()
+        except BaseException:
+            self._release_profile_lease()
+            raise
         return self
 
     def close(self):
@@ -137,12 +156,21 @@ class BrowserSession:
             if self.context:
                 self.context.close()
         finally:
-            self.context = None
-            self.page = None
-            if self._playwright:
-                self._playwright.stop()
-                self._playwright = None
-            self.engine = ""
+            try:
+                self.context = None
+                self.page = None
+                if self._playwright:
+                    self._playwright.stop()
+                    self._playwright = None
+                self.engine = ""
+            finally:
+                self._release_profile_lease()
+
+    def _release_profile_lease(self):
+        lease = self._profile_lease
+        self._profile_lease = None
+        if lease is not None:
+            lease.__exit__(None, None, None)
 
     def restart_with_cloak(self, reason: str = "") -> bool:
         """Restart the session with CloakBrowser when auto fallback is allowed."""
