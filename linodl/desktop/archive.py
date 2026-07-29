@@ -185,7 +185,9 @@ def _chapter_sources(
     for is_canonical, source in candidates:
         key = source.canonical_name.casefold()
         current = selected.get(key)
-        if current is None or (is_canonical and not current[0]):
+        # Legacy non-canonical sources outrank aliases; sorted input makes the
+        # first filename the deterministic winner among peer legacy sources.
+        if current is None or (not is_canonical and current[0]):
             selected[key] = (is_canonical, source)
     return [
         source

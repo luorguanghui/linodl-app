@@ -198,6 +198,56 @@ def test_epub_export_reloads_modified_space_separated_source(tmp_path):
     assert not (volume_dir / "001_Prologue.txt").exists()
 
 
+def test_legacy_space_source_overrides_stale_canonical_alias_without_writes(
+    tmp_path,
+):
+    output_dir = tmp_path / "output"
+    book = output_dir / "Book A"
+    volume_dir = book / "Volume 1"
+    volume_dir.mkdir(parents=True)
+    stale = volume_dir / "001_Prologue.txt"
+    stale.write_text(
+        "Prologue\n" + "=" * 50 + "\n\nstale",
+        encoding="utf-8",
+    )
+    source = volume_dir / "001 Prologue.txt"
+    source.write_text(
+        "Prologue\n" + "=" * 50 + "\n\n" + "fresh source body " * 20,
+        encoding="utf-8",
+    )
+    before = {
+        path.name: path.read_bytes()
+        for path in volume_dir.glob("*.txt")
+    }
+
+    novel, volumes, base_dir = load_archive(book, output_dir)
+    chapter = volumes[0].chapters[0]
+    messages = queue.Queue()
+    worker = VerifyWorker(volumes, {"Volume 1"}, str(base_dir), messages)
+    worker.run()
+    events = []
+    while not messages.empty():
+        events.append(messages.get_nowait())
+    result = next(data for event, data, _ in events if event == "result")
+    [epub_path] = EpubExporter().export(novel, volumes, str(base_dir))
+    with zipfile.ZipFile(epub_path) as archive:
+        exported = "\n".join(
+            archive.read(name).decode("utf-8")
+            for name in archive.namelist()
+            if name.endswith(".xhtml")
+        )
+    after = {
+        path.name: path.read_bytes()
+        for path in volume_dir.glob("*.txt")
+    }
+
+    assert chapter.source_filename == "001 Prologue.txt"
+    assert result.is_clean
+    assert "fresh source body" in exported
+    assert "stale" not in exported
+    assert after == before
+
+
 def test_verify_and_epub_fall_back_from_unsafe_source_filename(tmp_path):
     volume_dir = tmp_path / "Volume 1"
     volume_dir.mkdir()
