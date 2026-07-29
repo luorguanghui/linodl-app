@@ -54,6 +54,8 @@ export interface PollDto {
 }
 
 export interface DesktopSettingsDto {
+  username?: string;
+  has_password?: boolean;
   output_dir?: string;
   headless?: boolean;
   anti_bot_mode?: string;
@@ -61,6 +63,19 @@ export interface DesktopSettingsDto {
   proxy?: string;
   geoip?: boolean;
   theme?: string;
+}
+
+export interface SaveSettingsDto extends DesktopSettingsDto {
+  password: string;
+  clear_password: boolean;
+}
+
+export interface ArchiveDto {
+  id: string;
+  title: string;
+  path: string;
+  volume_count: number;
+  chapter_count: number;
 }
 
 export type ProfileStatus =
@@ -104,8 +119,32 @@ export interface BridgeCommandResponse {
   ok: true;
 }
 
+export interface BridgeArchiveListResponse {
+  ok: true;
+  archives: ArchiveDto[];
+}
+
+export interface BridgeSettingsResponse {
+  ok: true;
+  settings: DesktopSettingsDto;
+}
+
+export interface BridgeDirectoryResponse {
+  ok: true;
+  path: string;
+}
+
 export type PollResponse = PollDto | BridgeErrorResponse;
 export type BootstrapResponse = BootstrapDto | BridgeErrorResponse;
 export type BridgeOperationResult = BridgeOperationResponse | BridgeErrorResponse;
 export type BridgeCancelResult = BridgeCancelResponse | BridgeErrorResponse;
 export type BridgeCommandResult = BridgeCommandResponse | BridgeErrorResponse;
+export type BridgeArchiveListResult =
+  | BridgeArchiveListResponse
+  | BridgeErrorResponse;
+export type BridgeSettingsResult =
+  | BridgeSettingsResponse
+  | BridgeErrorResponse;
+export type BridgeDirectoryResult =
+  | BridgeDirectoryResponse
+  | BridgeErrorResponse;

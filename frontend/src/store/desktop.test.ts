@@ -231,6 +231,101 @@ describe("desktop store", () => {
     expect(store.getState().notice?.message).not.toContain("secret-value");
   });
 
+  it("loads archives and tracks verify and export operations separately", async () => {
+    const api = {
+      listArchives: vi.fn().mockResolvedValue({
+        ok: true,
+        archives: [
+          {
+            id: "作品 A",
+            title: "作品 A",
+            path: "C:\\books\\作品 A",
+            volume_count: 1,
+            chapter_count: 12,
+          },
+        ],
+      }),
+      startVerify: vi.fn().mockResolvedValue({
+        ok: true,
+        operation_id: "verify-1",
+      }),
+      startExport: vi.fn().mockResolvedValue({
+        ok: true,
+        operation_id: "export-1",
+      }),
+    };
+    const store = createDesktopStore(api as never);
+
+    await store.getState().loadArchives();
+    await store.getState().startVerify("作品 A");
+    await store.getState().startExport("作品 A", true);
+
+    expect(store.getState().archives).toHaveLength(1);
+    expect(store.getState().activeVerifyOperationId).toBe("verify-1");
+    expect(store.getState().activeExportOperationId).toBe("export-1");
+  });
+
+  it("loads and saves credential-safe settings through typed actions", async () => {
+    const api = {
+      getSettings: vi.fn().mockResolvedValue({
+        ok: true,
+        settings: {
+          username: "reader",
+          has_password: true,
+          output_dir: "C:\\books",
+          proxy: "",
+          geoip: false,
+        },
+      }),
+      saveSettings: vi.fn().mockResolvedValue({ ok: true }),
+    };
+    const store = createDesktopStore(api as never);
+
+    await store.getState().loadSettings();
+    const saved = await store.getState().saveSettings({
+      ...store.getState().settings,
+      password: "",
+      clear_password: false,
+    });
+
+    expect(saved).toBe(true);
+    expect(store.getState().settings.has_password).toBe(true);
+    expect(api.saveSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ password: "", clear_password: false }),
+    );
+  });
+
+  it("activates completed verify and export results from the global inspector", () => {
+    const store = createDesktopStore({} as never);
+    store.setState({
+      operations: {
+        "verify-1": {
+          id: "verify-1",
+          kind: "verify",
+          task_id: "task-verify",
+          status: "completed",
+          detail: "",
+          result: {},
+          error: "",
+        },
+        "export-1": {
+          id: "export-1",
+          kind: "export",
+          task_id: "task-export",
+          status: "completed",
+          detail: "",
+          result: [],
+          error: "",
+        },
+      },
+    });
+
+    expect(store.getState().viewTaskResult("task-verify")).toBe(true);
+    expect(store.getState().activeVerifyOperationId).toBe("verify-1");
+    expect(store.getState().viewTaskResult("task-export")).toBe(true);
+    expect(store.getState().activeExportOperationId).toBe("export-1");
+  });
+
   it("does not restart polling after stop during an in-flight poll", async () => {
     const pendingPoll = deferred<typeof snapshot>();
     const poll = vi.fn().mockReturnValue(pendingPoll.promise);

@@ -2,9 +2,13 @@ import type {
   BootstrapDto,
   BootstrapResponse,
   BridgeCancelResult,
+  BridgeArchiveListResult,
   BridgeCommandResult,
+  BridgeDirectoryResult,
   BridgeOperationResult,
+  BridgeSettingsResult,
   PollResponse,
+  SaveSettingsDto,
 } from "./types";
 
 type PywebviewMethods = Record<
@@ -62,6 +66,16 @@ export interface DesktopApi {
   focusTaskVerification(taskId: string): Promise<BridgeCommandResult>;
   checkProfile(): Promise<BridgeCommandResult>;
   startManualVerification(targetUrl: string): Promise<BridgeCommandResult>;
+  listArchives(): Promise<BridgeArchiveListResult>;
+  startVerify(archiveId: string): Promise<BridgeOperationResult>;
+  startExport(
+    archiveId: string,
+    perVolume: boolean,
+  ): Promise<BridgeOperationResult>;
+  getSettings(): Promise<BridgeSettingsResult>;
+  saveSettings(settings: SaveSettingsDto): Promise<BridgeCommandResult>;
+  chooseDirectory(): Promise<BridgeDirectoryResult>;
+  openDirectory(path: string): Promise<BridgeCommandResult>;
 }
 
 export const desktopApi: DesktopApi = {
@@ -104,5 +118,30 @@ export const desktopApi: DesktopApi = {
       "start_manual_verification",
       targetUrl,
     );
+  },
+  listArchives() {
+    return invoke<BridgeArchiveListResult>("list_archives");
+  },
+  startVerify(archiveId) {
+    return invoke<BridgeOperationResult>("start_verify", archiveId);
+  },
+  startExport(archiveId, perVolume) {
+    return invoke<BridgeOperationResult>(
+      "start_export",
+      archiveId,
+      perVolume,
+    );
+  },
+  getSettings() {
+    return invoke<BridgeSettingsResult>("get_settings");
+  },
+  saveSettings(settings) {
+    return invoke<BridgeCommandResult>("save_settings", settings);
+  },
+  chooseDirectory() {
+    return invoke<BridgeDirectoryResult>("choose_directory");
+  },
+  openDirectory(path) {
+    return invoke<BridgeCommandResult>("open_directory", path);
   },
 };

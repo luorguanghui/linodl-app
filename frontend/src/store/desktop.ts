@@ -4,12 +4,15 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import { desktopApi, type DesktopApi } from "../api/desktop";
 import type {
   BootstrapResponse,
+  ArchiveDto,
   BridgeErrorDto,
+  BridgeErrorResponse,
   PollDto,
   PollResponse,
   TaskDto,
   OperationMapDto,
   DesktopSettingsDto,
+  SaveSettingsDto,
   ProfileHealthDto,
 } from "../api/types";
 
@@ -31,6 +34,10 @@ export interface DesktopState {
   pendingRestartIds: string[];
   profile: ProfileState;
   settings: DesktopSettingsDto;
+  archives: ArchiveDto[];
+  archivesLoading: boolean;
+  activeVerifyOperationId: string | null;
+  activeExportOperationId: string | null;
   notice: BridgeErrorDto | null;
   /** Lifecycle callers pass a guard; direct callers omit it and own the request. */
   bootstrap(writeGuard?: WriteGuard): Promise<void>;
@@ -45,6 +52,13 @@ export interface DesktopState {
   focusTaskVerification(taskId: string): Promise<void>;
   checkProfile(): Promise<void>;
   startManualVerification(targetUrl: string): Promise<void>;
+  loadArchives(): Promise<void>;
+  startVerify(archiveId: string): Promise<void>;
+  startExport(archiveId: string, perVolume: boolean): Promise<void>;
+  loadSettings(): Promise<void>;
+  saveSettings(settings: SaveSettingsDto): Promise<boolean>;
+  chooseDirectory(): Promise<string | null>;
+  openDirectory(path: string): Promise<void>;
   viewTaskResult(taskId: string): boolean;
 }
 
@@ -55,8 +69,8 @@ const unavailableNotice: BridgeErrorDto = {
 };
 
 function isBridgeError(
-  response: PollResponse | BootstrapResponse | { ok: boolean },
-): response is { ok: false; error: BridgeErrorDto } {
+  response: object,
+): response is BridgeErrorResponse {
   return "ok" in response && response.ok === false;
 }
 
@@ -89,6 +103,10 @@ function createDesktopState(api: DesktopApi): StateCreator<DesktopState> {
     pendingRestartIds: [],
     profile: { status: "unknown", detail: "" },
     settings: {},
+    archives: [],
+    archivesLoading: false,
+    activeVerifyOperationId: null,
+    activeExportOperationId: null,
     notice: null,
     async bootstrap(writeGuard = allowWrites) {
       try {
@@ -238,6 +256,108 @@ function createDesktopState(api: DesktopApi): StateCreator<DesktopState> {
     async startManualVerification(targetUrl) {
       await runCommand(api.startManualVerification(targetUrl), set);
     },
+    async loadArchives() {
+      set({ archivesLoading: true });
+      try {
+        const response = await api.listArchives();
+        if (isBridgeError(response)) {
+          set({ notice: response.error });
+          return;
+        }
+        set({ archives: response.archives, notice: null });
+      } catch (error) {
+        set({ notice: noticeFor(error) });
+      } finally {
+        set({ archivesLoading: false });
+      }
+    },
+    async startVerify(archiveId) {
+      try {
+        const response = await api.startVerify(archiveId);
+        if (isBridgeError(response)) {
+          set({ notice: response.error });
+          return;
+        }
+        set({
+          activeVerifyOperationId: response.operation_id,
+          notice: null,
+        });
+      } catch (error) {
+        set({ notice: noticeFor(error) });
+      }
+    },
+    async startExport(archiveId, perVolume) {
+      try {
+        const response = await api.startExport(archiveId, perVolume);
+        if (isBridgeError(response)) {
+          set({ notice: response.error });
+          return;
+        }
+        set({
+          activeExportOperationId: response.operation_id,
+          notice: null,
+        });
+      } catch (error) {
+        set({ notice: noticeFor(error) });
+      }
+    },
+    async loadSettings() {
+      try {
+        const response = await api.getSettings();
+        if (isBridgeError(response)) {
+          set({ notice: response.error });
+          return;
+        }
+        set({ settings: response.settings, notice: null });
+      } catch (error) {
+        set({ notice: noticeFor(error) });
+      }
+    },
+    async saveSettings(settings) {
+      try {
+        const response = await api.saveSettings(settings);
+        if (isBridgeError(response)) {
+          set({ notice: response.error });
+          return false;
+        }
+        const {
+          password,
+          clear_password: clearPassword,
+          ...safeSettings
+        } = settings;
+        set((state) => ({
+          settings: {
+            ...safeSettings,
+            has_password: clearPassword
+              ? false
+              : Boolean(password) || state.settings.has_password,
+            geoip: Boolean(safeSettings.proxy?.trim()) && safeSettings.geoip,
+          },
+          notice: null,
+        }));
+        return true;
+      } catch (error) {
+        set({ notice: noticeFor(error) });
+        return false;
+      }
+    },
+    async chooseDirectory() {
+      try {
+        const response = await api.chooseDirectory();
+        if (isBridgeError(response)) {
+          set({ notice: response.error });
+          return null;
+        }
+        set({ notice: null });
+        return response.path || null;
+      } catch (error) {
+        set({ notice: noticeFor(error) });
+        return null;
+      }
+    },
+    async openDirectory(path) {
+      await runCommand(api.openDirectory(path), set);
+    },
     viewTaskResult(taskId) {
       const operation = Object.values(get().operations).find(
         (candidate) =>
@@ -247,6 +367,14 @@ function createDesktopState(api: DesktopApi): StateCreator<DesktopState> {
         set({
           activeOperationId: operation.id,
           activeOperationKind: toWorkbenchKind(operation.kind),
+          activeVerifyOperationId:
+            operation.kind === "verify"
+              ? operation.id
+              : get().activeVerifyOperationId,
+          activeExportOperationId:
+            operation.kind === "export"
+              ? operation.id
+              : get().activeExportOperationId,
           notice: null,
         });
         return true;

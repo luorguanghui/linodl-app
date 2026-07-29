@@ -8,7 +8,9 @@ import {
 } from "lucide-react";
 
 import { EmptyState } from "../components/EmptyState";
-import { ProfilePage } from "../features/profile/ProfilePage";
+import { ArchivePage } from "../features/archive/ArchivePage";
+import { SettingsPage } from "../features/settings/SettingsPage";
+import { VerifyPage } from "../features/verify/VerifyPage";
 import { WorkbenchPage } from "../features/workbench/WorkbenchPage";
 
 export type PageKey =
@@ -55,13 +57,13 @@ export const PAGE_DEFINITIONS: readonly PageDefinition[] = [
   },
   {
     key: "catalog",
-    label: "书目采集",
+    label: "归档与导出",
     chapter: "第三章",
-    chapterLabel: "编目",
-    description: "核对卷册与章节边界，为下载建立一份清楚的目录。",
-    emptyKicker: "等待书目",
-    emptyTitle: "选择作品后整理卷册",
-    emptyDetail: "书目采集将在这里展开；页面会保留阅读式的章节层级。",
+    chapterLabel: "归档",
+    description: "浏览本地作品、核对卷章数量，并沿用现有导出流程生成 EPUB。",
+    emptyKicker: "暂无归档",
+    emptyTitle: "下载完成后在这里导出",
+    emptyDetail: "归档只从设置中的输出目录读取。",
     icon: LibraryBig,
   },
   {
@@ -79,7 +81,7 @@ export const PAGE_DEFINITIONS: readonly PageDefinition[] = [
     key: "settings",
     label: "工作室设置",
     chapter: "第五章",
-    chapterLabel: "归档",
+    chapterLabel: "偏好",
     description: "管理输出位置与采集方式，让每次整理沿用同一套工作习惯。",
     emptyKicker: "工作室偏好",
     emptyTitle: "设置面板即将接入",
@@ -118,8 +120,12 @@ export function AppRouter({ page }: AppRouterProps) {
 
       {page === "workbench" ? (
         <WorkbenchPage />
+      ) : page === "catalog" ? (
+        <ArchivePage />
+      ) : page === "validation" ? (
+        <VerifyPage />
       ) : page === "settings" ? (
-        <ProfilePage />
+        <SettingsPage />
       ) : (
         <EmptyState
           icon={<PageIcon size={22} strokeWidth={1.8} />}

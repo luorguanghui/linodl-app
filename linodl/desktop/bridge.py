@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Callable
+import os
+from pathlib import Path
+from typing import Callable, Mapping
 from urllib.parse import urlsplit
 
 from ..config.manager import ConfigManager
+from .archive import load_archive, scan_archives
 from .controller import (
     CatalogOperationNotFound,
     CatalogReloadRequired,
@@ -15,6 +18,9 @@ from .controller import (
 )
 from .profile import DesktopProfileService
 from .serialization import to_primitive
+
+
+_PYWEBVIEW_FOLDER_DIALOG = 10
 
 
 class DesktopBridge:
@@ -129,6 +135,204 @@ class DesktopBridge:
             catalog_operation_id=catalog_id,
             selected_volumes=volumes,
         )
+
+    def list_archives(self) -> dict:
+        try:
+            archives = scan_archives(Path(self._config.output_dir).resolve())
+            return {"ok": True, "archives": to_primitive(archives)}
+        except Exception:
+            return self._error(
+                "ARCHIVE_LIST_FAILED",
+                "无法读取归档目录。",
+                "请检查输出目录后重试。",
+            )
+
+    def start_verify(self, archive_id: str) -> dict:
+        archive = self._archive_for_id(archive_id)
+        if archive is None:
+            return self._error(
+                "ARCHIVE_NOT_FOUND",
+                "所选归档不存在。",
+                "请刷新归档列表后重试。",
+            )
+        try:
+            _, volumes, base_dir = load_archive(archive["path"])
+        except Exception:
+            return self._error(
+                "ARCHIVE_READ_FAILED",
+                "无法读取归档内容。",
+                "请检查归档文件后重试。",
+            )
+        if not volumes:
+            return self._error(
+                "ARCHIVE_EMPTY",
+                "所选归档没有可校验的卷册。",
+                "请选择包含章节的归档。",
+            )
+        return self._start(
+            "verify",
+            volumes=volumes,
+            selected_volumes=[volume.name for volume in volumes],
+            output_dir=str(base_dir),
+        )
+
+    def start_export(self, archive_id: str, per_volume: bool = True) -> dict:
+        archive = self._archive_for_id(archive_id)
+        if archive is None:
+            return self._error(
+                "ARCHIVE_NOT_FOUND",
+                "所选归档不存在。",
+                "请刷新归档列表后重试。",
+            )
+        try:
+            novel_info, volumes, base_dir = load_archive(archive["path"])
+        except Exception:
+            return self._error(
+                "ARCHIVE_READ_FAILED",
+                "无法读取归档内容。",
+                "请检查归档文件后重试。",
+            )
+        if not volumes:
+            return self._error(
+                "ARCHIVE_EMPTY",
+                "所选归档没有可导出的卷册。",
+                "请选择包含章节的归档。",
+            )
+        return self._start(
+            "export",
+            novel_info=novel_info,
+            volumes=volumes,
+            base_dir=str(base_dir),
+            per_volume=bool(per_volume),
+        )
+
+    def get_settings(self) -> dict:
+        try:
+            settings = {
+                "username": self._config.username,
+                "has_password": bool(self._config.password),
+                "output_dir": self._config.output_dir,
+                "headless": self._config.headless,
+                "anti_bot_mode": self._config.anti_bot_mode,
+                "profile_dir": self._config.profile_dir,
+                "proxy": self._config.proxy,
+                "geoip": self._config.geoip,
+                "theme": self._config.theme,
+            }
+            return {"ok": True, "settings": to_primitive(settings)}
+        except Exception:
+            return self._error(
+                "SETTINGS_READ_FAILED",
+                "无法读取设置。",
+                "请稍后重试。",
+            )
+
+    def save_settings(self, settings: Mapping[str, object]) -> dict:
+        if not isinstance(settings, Mapping):
+            return self._error(
+                "INVALID_SETTINGS",
+                "设置内容无效。",
+                "请刷新设置页后重试。",
+            )
+        try:
+            password_input = str(settings.get("password", "") or "")
+            if bool(settings.get("clear_password", False)):
+                password = ""
+            elif password_input:
+                password = password_input
+            else:
+                password = self._config.password
+            self._config.update_settings(
+                username=str(
+                    settings.get("username", self._config.username) or ""
+                ),
+                password=password,
+                output_dir=str(
+                    settings.get("output_dir", self._config.output_dir) or ""
+                ),
+                headless=self._setting_bool(
+                    settings.get("headless"),
+                    self._config.headless,
+                ),
+                anti_bot_mode=str(
+                    settings.get(
+                        "anti_bot_mode",
+                        self._config.anti_bot_mode,
+                    )
+                    or ""
+                ),
+                profile_dir=str(
+                    settings.get("profile_dir", self._config.profile_dir) or ""
+                ),
+                proxy=str(settings.get("proxy", self._config.proxy) or ""),
+                geoip=self._setting_bool(
+                    settings.get("geoip"),
+                    self._config.geoip,
+                ),
+                theme=str(settings.get("theme", self._config.theme) or ""),
+            )
+            return {"ok": True}
+        except Exception:
+            return self._error(
+                "SETTINGS_SAVE_FAILED",
+                "无法保存设置。",
+                "请检查设置后重试。",
+            )
+
+    def choose_directory(self) -> dict:
+        if self._window is None:
+            return self._error(
+                "DIRECTORY_PICKER_UNAVAILABLE",
+                "目录选择器暂不可用。",
+                "请重新启动桌面应用。",
+            )
+        try:
+            selected = self._window.create_file_dialog(
+                _PYWEBVIEW_FOLDER_DIALOG
+            )
+            if isinstance(selected, (tuple, list)):
+                path = str(selected[0]) if selected else ""
+            else:
+                path = str(selected or "")
+            return {"ok": True, "path": path}
+        except Exception:
+            return self._error(
+                "DIRECTORY_PICKER_FAILED",
+                "无法打开目录选择器。",
+                "请稍后重试。",
+            )
+
+    def open_directory(self, path: str) -> dict:
+        normalized = str(path or "").strip()
+        if not normalized:
+            return self._error(
+                "INVALID_DIRECTORY",
+                "目录地址无效。",
+                "请刷新页面后重试。",
+            )
+        try:
+            output_dir = Path(self._config.output_dir).resolve()
+            target = Path(normalized).resolve()
+            if target != output_dir and output_dir not in target.parents:
+                return self._error(
+                    "DIRECTORY_OUTSIDE_OUTPUT",
+                    "只能打开输出目录内的文件夹。",
+                    "请从归档列表中选择目录。",
+                )
+            if not target.is_dir():
+                return self._error(
+                    "DIRECTORY_NOT_FOUND",
+                    "目录不存在。",
+                    "请刷新归档列表后重试。",
+                )
+            os.startfile(str(target))
+            return {"ok": True}
+        except Exception:
+            return self._error(
+                "OPEN_DIRECTORY_FAILED",
+                "无法打开目录。",
+                "请稍后重试。",
+            )
 
     def cancel(self, task_id: str) -> dict:
         normalized = str(task_id or "").strip()
@@ -277,6 +481,27 @@ class DesktopBridge:
         )
         if drain is not None:
             drain()
+
+    def _archive_for_id(self, archive_id: str) -> dict | None:
+        normalized = str(archive_id or "").strip()
+        if not normalized:
+            return None
+        try:
+            archives = scan_archives(Path(self._config.output_dir).resolve())
+        except Exception:
+            return None
+        return next(
+            (
+                archive
+                for archive in archives
+                if archive["id"] == normalized
+            ),
+            None,
+        )
+
+    @staticmethod
+    def _setting_bool(value: object, fallback: bool) -> bool:
+        return value if isinstance(value, bool) else fallback
 
     @staticmethod
     def _is_valid_verification_target(target_url: str) -> bool:

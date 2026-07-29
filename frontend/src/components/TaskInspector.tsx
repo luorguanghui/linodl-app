@@ -47,7 +47,7 @@ const RECENT_TERMINAL_TASK_LIMIT = 8;
 
 interface TaskInspectorProps {
   tasks?: TaskDto[];
-  onViewResult?: () => void;
+  onViewResult?: (operationKind: string) => void;
 }
 
 export function TaskInspector({
@@ -79,6 +79,7 @@ export function TaskInspector({
     (state) => state.focusTaskVerification,
   );
   const viewTaskResult = useDesktopStore((state) => state.viewTaskResult);
+  const operations = useDesktopStore((state) => state.operations);
 
   return (
     <aside className="task-inspector" aria-label="任务检查器">
@@ -186,8 +187,11 @@ export function TaskInspector({
                       type="button"
                       aria-label={`查看${task.title}结果`}
                       onClick={() => {
+                        const operation = Object.values(operations).find(
+                          (candidate) => candidate.task_id === task.id,
+                        );
                         if (viewTaskResult(task.id)) {
-                          onViewResult?.();
+                          onViewResult?.(operation?.kind ?? "");
                         }
                       }}
                     >

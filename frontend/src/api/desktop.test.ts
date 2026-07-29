@@ -38,4 +38,31 @@ describe("desktop API", () => {
 
     expect(poll).toHaveBeenCalledWith(3, 6);
   });
+
+  it("maps utility commands to the stable pywebview method names", async () => {
+    const listArchives = vi.fn().mockResolvedValue({ ok: true, archives: [] });
+    const startVerify = vi.fn().mockResolvedValue({
+      ok: true,
+      operation_id: "verify-1",
+    });
+    const startExport = vi.fn().mockResolvedValue({
+      ok: true,
+      operation_id: "export-1",
+    });
+    (window as TestWindow).pywebview = {
+      api: {
+        list_archives: listArchives,
+        start_verify: startVerify,
+        start_export: startExport,
+      },
+    };
+
+    await desktopApi.listArchives();
+    await desktopApi.startVerify("作品 A");
+    await desktopApi.startExport("作品 A", true);
+
+    expect(listArchives).toHaveBeenCalledWith();
+    expect(startVerify).toHaveBeenCalledWith("作品 A");
+    expect(startExport).toHaveBeenCalledWith("作品 A", true);
+  });
 });

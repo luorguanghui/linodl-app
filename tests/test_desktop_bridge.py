@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import threading
 import types
 
@@ -386,3 +387,183 @@ def test_bridge_turns_python_exceptions_into_stable_redacted_errors(tmp_path):
         "action": "请稍后重试。",
     }
     assert "secret-value" not in str(response)
+
+
+def test_bridge_settings_never_return_password_and_empty_password_keeps_secret(
+    tmp_path,
+):
+    config = ConfigManager(str(tmp_path / "settings.ini"))
+    config.set_credentials("reader", "secret")
+    bridge = DesktopBridge(config, controller=FakeController())
+
+    before = bridge.get_settings()
+    saved = bridge.save_settings(
+        {
+            **before["settings"],
+            "username": "reader-renamed",
+            "password": "",
+            "clear_password": False,
+            "proxy": "",
+            "geoip": True,
+        }
+    )
+    after = bridge.get_settings()
+
+    assert before["settings"]["has_password"] is True
+    assert "password" not in before["settings"]
+    assert saved == {"ok": True}
+    assert config.username == "reader-renamed"
+    assert config.password == "secret"
+    assert config.geoip is False
+    assert after["settings"]["has_password"] is True
+    assert "password" not in after["settings"]
+
+
+def test_bridge_settings_clear_password_only_when_explicitly_requested(tmp_path):
+    config = ConfigManager(str(tmp_path / "settings.ini"))
+    config.set_credentials("reader", "secret")
+    bridge = DesktopBridge(config, controller=FakeController())
+    settings = bridge.get_settings()["settings"]
+
+    response = bridge.save_settings(
+        {
+            **settings,
+            "password": "ignored",
+            "clear_password": True,
+        }
+    )
+
+    assert response == {"ok": True}
+    assert config.password == ""
+    assert bridge.get_settings()["settings"]["has_password"] is False
+
+
+def test_bridge_choose_directory_uses_attached_pywebview_window(tmp_path):
+    class FakeWindow:
+        def __init__(self):
+            self.calls = []
+
+        def create_file_dialog(self, dialog_type):
+            self.calls.append(dialog_type)
+            return (str(tmp_path / "chosen"),)
+
+    bridge = make_bridge(tmp_path)
+    window = FakeWindow()
+    bridge.attach_window(window)
+
+    response = bridge.choose_directory()
+
+    assert response == {"ok": True, "path": str(tmp_path / "chosen")}
+    assert len(window.calls) == 1
+
+
+def test_bridge_open_directory_allows_output_and_descendants_only(
+    monkeypatch,
+    tmp_path,
+):
+    output_dir = tmp_path / "output"
+    child = output_dir / "作品 A"
+    outside = tmp_path / "outside"
+    child.mkdir(parents=True)
+    outside.mkdir()
+    opened = []
+    monkeypatch.setattr(os, "startfile", lambda path: opened.append(path))
+    config = ConfigManager(str(tmp_path / "settings.ini"))
+    config.output_dir = str(output_dir)
+    bridge = DesktopBridge(config, controller=FakeController())
+
+    assert bridge.open_directory(str(output_dir)) == {"ok": True}
+    assert bridge.open_directory(str(child)) == {"ok": True}
+    rejected = bridge.open_directory(str(outside))
+
+    assert rejected["error"]["code"] == "DIRECTORY_OUTSIDE_OUTPUT"
+    assert opened == [str(output_dir.resolve()), str(child.resolve())]
+
+
+def test_bridge_open_directory_rejects_resolved_symlink_escape(
+    monkeypatch,
+    tmp_path,
+):
+    output_dir = tmp_path / "output"
+    outside = tmp_path / "outside"
+    output_dir.mkdir()
+    outside.mkdir()
+    link = output_dir / "linked-outside"
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except OSError:
+        pytest.skip("directory symlinks are unavailable")
+    opened = []
+    monkeypatch.setattr(os, "startfile", lambda path: opened.append(path))
+    config = ConfigManager(str(tmp_path / "settings.ini"))
+    config.output_dir = str(output_dir)
+    bridge = DesktopBridge(config, controller=FakeController())
+
+    response = bridge.open_directory(str(link))
+
+    assert response["error"]["code"] == "DIRECTORY_OUTSIDE_OUTPUT"
+    assert opened == []
+
+
+def test_bridge_lists_and_starts_only_configured_output_archives(tmp_path):
+    output_dir = tmp_path / "output"
+    volume = output_dir / "作品 A" / "第一卷"
+    volume.mkdir(parents=True)
+    (volume / "001_序章.txt").write_text("正文", encoding="utf-8")
+    controller = FakeController()
+    config = ConfigManager(str(tmp_path / "settings.ini"))
+    config.output_dir = str(output_dir)
+    bridge = DesktopBridge(config, controller=controller)
+
+    listed = bridge.list_archives()
+    verified = bridge.start_verify("作品 A")
+
+    assert [archive["id"] for archive in listed["archives"]] == ["作品 A"]
+    assert verified == {"ok": True, "operation_id": "op-1"}
+    kind, payload = controller.last
+    assert kind == "verify"
+    assert payload["output_dir"] == str((output_dir / "作品 A").resolve())
+    assert payload["selected_volumes"] == ["第一卷"]
+    assert [volume.name for volume in payload["volumes"]] == ["第一卷"]
+
+    exported = bridge.start_export("作品 A", True)
+
+    assert exported == {"ok": True, "operation_id": "op-1"}
+    kind, payload = controller.last
+    assert kind == "export"
+    assert payload["novel_info"].title == "作品 A"
+    assert payload["base_dir"] == str((output_dir / "作品 A").resolve())
+    assert payload["per_volume"] is True
+
+
+def test_bridge_rejects_archive_ids_outside_configured_output(tmp_path):
+    output_dir = tmp_path / "output"
+    outside_volume = tmp_path / "outside" / "第一卷"
+    output_dir.mkdir()
+    outside_volume.mkdir(parents=True)
+    (outside_volume / "001_序章.txt").write_text("正文", encoding="utf-8")
+    controller = FakeController()
+    config = ConfigManager(str(tmp_path / "settings.ini"))
+    config.output_dir = str(output_dir)
+    bridge = DesktopBridge(config, controller=controller)
+
+    verified = bridge.start_verify("../outside")
+    exported = bridge.start_export("../outside", True)
+
+    assert verified["error"]["code"] == "ARCHIVE_NOT_FOUND"
+    assert exported["error"]["code"] == "ARCHIVE_NOT_FOUND"
+    assert controller.last is None
+
+
+def test_bridge_utility_failures_stay_structured_and_redacted(tmp_path):
+    config = ConfigManager(str(tmp_path / "settings.ini"))
+    config.output_dir = str(tmp_path / "missing-token=secret-value")
+    bridge = DesktopBridge(config, controller=FakeController())
+
+    listed = bridge.list_archives()
+    chosen = bridge.choose_directory()
+
+    assert listed["error"]["code"] == "ARCHIVE_LIST_FAILED"
+    assert chosen["error"]["code"] == "DIRECTORY_PICKER_UNAVAILABLE"
+    assert "secret-value" not in str(listed)
+    assert "secret-value" not in str(chosen)

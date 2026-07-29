@@ -110,6 +110,51 @@ describe("DesktopShell", () => {
     );
   });
 
+  it("opens completed verification results on the verification page", () => {
+    useDesktopStore.setState({
+      tasks: [
+        {
+          id: "task-verify",
+          title: "校验下载内容",
+          status: "completed",
+          detail: "完成",
+          progress: 1,
+          input_snapshot: null,
+          error_detail: "",
+        },
+      ],
+      operations: {
+        "operation-verify": {
+          id: "operation-verify",
+          kind: "verify",
+          task_id: "task-verify",
+          status: "completed",
+          detail: "完成",
+          result: {
+            total_expected: 1,
+            complete: 1,
+            issue_count: 0,
+            is_clean: true,
+            issues: [],
+          },
+          error: "",
+        },
+      },
+    });
+    render(<DesktopShell />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "查看校验下载内容结果" }),
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "内容校验" }),
+    ).toBeInTheDocument();
+    expect(useDesktopStore.getState().activeVerifyOperationId).toBe(
+      "operation-verify",
+    );
+  });
+
   it("starts polling on mount and stops scheduling work after unmount", async () => {
     vi.useFakeTimers();
     const bootstrap = vi.fn().mockResolvedValue(emptySnapshot);
