@@ -1,8 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createDesktopStore, startPolling, stopPolling } from "./desktop";
+import {
+  createDesktopStore,
+  startPolling,
+  stopPolling,
+  useDesktopStore,
+} from "./desktop";
+import type { BootstrapDto } from "../api/types";
 
-const snapshot = {
+const snapshot: BootstrapDto = {
   task_version: 0,
   tasks: [],
   operation_version: 0,
@@ -25,7 +31,20 @@ async function flushPromises() {
 }
 
 describe("desktop store", () => {
-  beforeEach(() => vi.useFakeTimers());
+  beforeEach(() => {
+    vi.useFakeTimers();
+    stopPolling();
+    useDesktopStore.setState({
+      tasks: [],
+      taskVersion: -1,
+      operations: {},
+      operationVersion: -1,
+      activeOperationId: null,
+      profile: "unknown",
+      settings: {},
+      notice: null,
+    });
+  });
 
   afterEach(() => {
     stopPolling();
@@ -165,5 +184,99 @@ describe("desktop store", () => {
     await flushPromises();
 
     expect(poll).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let an older poll overwrite a newer generation", async () => {
+    const oldPoll = deferred<typeof snapshot>();
+    const poll = vi
+      .fn()
+      .mockReturnValueOnce(oldPoll.promise)
+      .mockResolvedValue({
+        ...snapshot,
+        task_version: 2,
+        tasks: [
+          {
+            id: "new-task",
+            title: "newer result",
+            status: "running",
+            detail: "",
+            progress: 0,
+            input_snapshot: null,
+            error_detail: "",
+          },
+        ],
+      });
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    window.pywebview = { api: { bootstrap: vi.fn().mockResolvedValue(snapshot), poll } };
+
+    startPolling();
+    await flushPromises();
+    vi.advanceTimersByTime(500);
+    await flushPromises();
+    hidden.mockReturnValue(true);
+    document.dispatchEvent(new Event("visibilitychange"));
+    vi.advanceTimersByTime(2_000);
+    await flushPromises();
+    oldPoll.resolve({
+      ...snapshot,
+      task_version: 1,
+      tasks: [
+        {
+          id: "old-task",
+          title: "older result",
+          status: "running",
+          detail: "",
+          progress: 0,
+          input_snapshot: null,
+          error_detail: "",
+        },
+      ],
+    });
+    await flushPromises();
+
+    expect(useDesktopStore.getState().tasks[0]?.title).toBe("newer result");
+  });
+
+  it("does not let a stopped bootstrap overwrite a later start", async () => {
+    const oldBootstrap = deferred<typeof snapshot>();
+    const bootstrap = vi
+      .fn()
+      .mockReturnValueOnce(oldBootstrap.promise)
+      .mockResolvedValueOnce({ ...snapshot, config: { theme: "new" } });
+    window.pywebview = {
+      api: { bootstrap, poll: vi.fn().mockResolvedValue(snapshot) },
+    };
+
+    startPolling();
+    stopPolling();
+    startPolling();
+    await flushPromises();
+    oldBootstrap.resolve({ ...snapshot, config: { theme: "old" } });
+    await flushPromises();
+
+    expect(useDesktopStore.getState().settings.theme).toBe("new");
+  });
+
+  it("does not let an invalidated poll error replace the current notice", async () => {
+    const oldPoll = deferred<typeof snapshot>();
+    const poll = vi
+      .fn()
+      .mockReturnValueOnce(oldPoll.promise)
+      .mockResolvedValue(snapshot);
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    window.pywebview = { api: { bootstrap: vi.fn().mockResolvedValue(snapshot), poll } };
+
+    startPolling();
+    await flushPromises();
+    vi.advanceTimersByTime(500);
+    await flushPromises();
+    hidden.mockReturnValue(true);
+    document.dispatchEvent(new Event("visibilitychange"));
+    vi.advanceTimersByTime(2_000);
+    await flushPromises();
+    oldPoll.resolve(Promise.reject(new Error("stale failure")) as never);
+    await flushPromises();
+
+    expect(useDesktopStore.getState().notice).toBeNull();
   });
 });

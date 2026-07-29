@@ -13,6 +13,9 @@ import type {
 } from "../api/types";
 
 export type ProfileState = "unknown";
+type WriteGuard = () => boolean;
+
+const allowWrites: WriteGuard = () => true;
 
 export interface DesktopState {
   tasks: TaskDto[];
@@ -23,8 +26,10 @@ export interface DesktopState {
   profile: ProfileState;
   settings: DesktopSettingsDto;
   notice: BridgeErrorDto | null;
-  bootstrap(): Promise<void>;
-  pollOnce(): Promise<void>;
+  /** Lifecycle callers pass a guard; direct callers omit it and own the request. */
+  bootstrap(writeGuard?: WriteGuard): Promise<void>;
+  /** Lifecycle callers pass a guard; direct callers omit it and own the request. */
+  pollOnce(writeGuard?: WriteGuard): Promise<void>;
   search(query: string): Promise<void>;
   loadCatalog(url: string): Promise<void>;
   startDownload(catalogOperationId: string, selectedVolumes: string[]): Promise<void>;
@@ -66,32 +71,44 @@ function createDesktopState(api: DesktopApi): StateCreator<DesktopState> {
     profile: "unknown",
     settings: {},
     notice: null,
-    async bootstrap() {
+    async bootstrap(writeGuard = allowWrites) {
       try {
         const response = await api.bootstrap();
         if (isBridgeError(response)) {
-          set({ notice: response.error });
+          if (writeGuard()) {
+            set({ notice: response.error });
+          }
           return;
         }
-        set((state) => ({
-          ...mergeSnapshot(response)(state),
-          settings: response.config,
-          notice: null,
-        }));
+        if (writeGuard()) {
+          set((state) => ({
+            ...mergeSnapshot(response)(state),
+            settings: response.config,
+            notice: null,
+          }));
+        }
       } catch (error) {
-        set({ notice: noticeFor(error) });
+        if (writeGuard()) {
+          set({ notice: noticeFor(error) });
+        }
       }
     },
-    async pollOnce() {
+    async pollOnce(writeGuard = allowWrites) {
       try {
         const response = await api.poll(get().taskVersion, get().operationVersion);
         if (isBridgeError(response)) {
-          set({ notice: response.error });
+          if (writeGuard()) {
+            set({ notice: response.error });
+          }
           return;
         }
-        set((state) => ({ ...mergeSnapshot(response)(state), notice: null }));
+        if (writeGuard()) {
+          set((state) => ({ ...mergeSnapshot(response)(state), notice: null }));
+        }
       } catch (error) {
-        set({ notice: noticeFor(error) });
+        if (writeGuard()) {
+          set({ notice: noticeFor(error) });
+        }
       }
     },
     async search(query) {
@@ -155,7 +172,8 @@ function schedulePolling(generation: number) {
       return;
     }
     pollingTimer = undefined;
-    await useDesktopStore.getState().pollOnce();
+    const writeGuard = () => pollingActive && generation === pollingGeneration;
+    await useDesktopStore.getState().pollOnce(writeGuard);
     if (pollingActive && generation === pollingGeneration) {
       schedulePolling(generation);
     }
@@ -184,7 +202,7 @@ export function startPolling(): void {
   document.addEventListener("visibilitychange", restartPollingForVisibility);
   void useDesktopStore
     .getState()
-    .bootstrap()
+    .bootstrap(() => pollingActive && generation === pollingGeneration)
     .then(() => {
       if (!pollingActive || generation !== pollingGeneration) {
         return;
