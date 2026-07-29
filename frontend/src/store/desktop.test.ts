@@ -1,9 +1,38 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createDesktopStore } from "./desktop";
+import { createDesktopStore, startPolling, stopPolling } from "./desktop";
+
+const snapshot = {
+  task_version: 0,
+  tasks: [],
+  operation_version: 0,
+  operations: {},
+  config: {},
+};
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => {
+    resolve = done;
+  });
+  return { promise, resolve };
+}
+
+async function flushPromises() {
+  for (let index = 0; index < 5; index += 1) {
+    await Promise.resolve();
+  }
+}
 
 describe("desktop store", () => {
   beforeEach(() => vi.useFakeTimers());
+
+  afterEach(() => {
+    stopPolling();
+    delete window.pywebview;
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
 
   it("keeps existing tasks when the bridge reports no version change", async () => {
     const api = {
@@ -60,5 +89,81 @@ describe("desktop store", () => {
       message: "请输入作品名。",
       action: "输入后重试。",
     });
+  });
+
+  it("does not expose an unstructured error message in the notice", async () => {
+    const store = createDesktopStore({
+      poll: vi.fn().mockRejectedValue(new Error("token=secret-value")),
+    } as never);
+
+    await store.getState().pollOnce();
+
+    expect(store.getState().notice).toMatchObject({
+      code: "DESKTOP_API_UNAVAILABLE",
+    });
+    expect(store.getState().notice?.message).not.toContain("secret-value");
+  });
+
+  it("does not restart polling after stop during an in-flight poll", async () => {
+    const pendingPoll = deferred<typeof snapshot>();
+    const poll = vi.fn().mockReturnValue(pendingPoll.promise);
+    window.pywebview = { api: { bootstrap: vi.fn().mockResolvedValue(snapshot), poll } };
+
+    startPolling();
+    await flushPromises();
+    vi.advanceTimersByTime(500);
+    await flushPromises();
+    expect(poll).toHaveBeenCalledTimes(1);
+
+    stopPolling();
+    pendingPoll.resolve(snapshot);
+    await flushPromises();
+    vi.advanceTimersByTime(2_001);
+
+    expect(poll).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not create a second timer when visibility changes during a poll", async () => {
+    const pendingPoll = deferred<typeof snapshot>();
+    const poll = vi
+      .fn()
+      .mockReturnValueOnce(pendingPoll.promise)
+      .mockResolvedValue(snapshot);
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    window.pywebview = { api: { bootstrap: vi.fn().mockResolvedValue(snapshot), poll } };
+
+    startPolling();
+    await flushPromises();
+    vi.advanceTimersByTime(500);
+    await flushPromises();
+    hidden.mockReturnValue(true);
+    document.dispatchEvent(new Event("visibilitychange"));
+    pendingPoll.resolve(snapshot);
+    await flushPromises();
+    vi.advanceTimersByTime(2_000);
+    await flushPromises();
+
+    expect(poll).toHaveBeenCalledTimes(2);
+  });
+
+  it("waits for bootstrap before it starts polling", async () => {
+    const pendingBootstrap = deferred<typeof snapshot>();
+    const poll = vi.fn().mockResolvedValue(snapshot);
+    window.pywebview = {
+      api: { bootstrap: vi.fn().mockReturnValue(pendingBootstrap.promise), poll },
+    };
+
+    startPolling();
+    vi.advanceTimersByTime(2_000);
+    await flushPromises();
+
+    expect(poll).not.toHaveBeenCalled();
+
+    pendingBootstrap.resolve(snapshot);
+    await flushPromises();
+    vi.advanceTimersByTime(500);
+    await flushPromises();
+
+    expect(poll).toHaveBeenCalledTimes(1);
   });
 });

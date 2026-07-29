@@ -52,10 +52,7 @@ function mergeSnapshot(snapshot: PollDto) {
   });
 }
 
-function noticeFor(error: unknown): BridgeErrorDto {
-  if (error instanceof Error && error.message) {
-    return { ...unavailableNotice, message: error.message };
-  }
+function noticeFor(_error: unknown): BridgeErrorDto {
   return unavailableNotice;
 }
 
@@ -144,32 +141,63 @@ async function startOperation(
 export const useDesktopStore = create<DesktopState>(createDesktopState(desktopApi));
 
 let pollingTimer: ReturnType<typeof setTimeout> | undefined;
+let pollingActive = false;
+let pollingBootstrapped = false;
+let pollingGeneration = 0;
 
-function schedulePolling() {
+function schedulePolling(generation: number) {
+  if (!pollingActive || generation !== pollingGeneration) {
+    return;
+  }
   const delay = document.hidden ? 2_000 : 500;
   pollingTimer = setTimeout(async () => {
+    if (!pollingActive || generation !== pollingGeneration) {
+      return;
+    }
+    pollingTimer = undefined;
     await useDesktopStore.getState().pollOnce();
-    schedulePolling();
+    if (pollingActive && generation === pollingGeneration) {
+      schedulePolling(generation);
+    }
   }, delay);
 }
 
 function restartPollingForVisibility() {
+  if (!pollingActive || !pollingBootstrapped) {
+    return;
+  }
+  const generation = ++pollingGeneration;
   if (pollingTimer !== undefined) {
     clearTimeout(pollingTimer);
+    pollingTimer = undefined;
   }
-  schedulePolling();
+  schedulePolling(generation);
 }
 
 export function startPolling(): void {
-  if (pollingTimer !== undefined) {
+  if (pollingActive) {
     return;
   }
-  void useDesktopStore.getState().bootstrap();
+  pollingActive = true;
+  pollingBootstrapped = false;
+  const generation = ++pollingGeneration;
   document.addEventListener("visibilitychange", restartPollingForVisibility);
-  schedulePolling();
+  void useDesktopStore
+    .getState()
+    .bootstrap()
+    .then(() => {
+      if (!pollingActive || generation !== pollingGeneration) {
+        return;
+      }
+      pollingBootstrapped = true;
+      schedulePolling(generation);
+    });
 }
 
 export function stopPolling(): void {
+  pollingActive = false;
+  pollingBootstrapped = false;
+  pollingGeneration += 1;
   if (pollingTimer !== undefined) {
     clearTimeout(pollingTimer);
     pollingTimer = undefined;
