@@ -11,7 +11,7 @@ from .assets import DesktopAssets
 def run_desktop(config: ConfigManager, debug: bool = False) -> None:
     from .bridge import DesktopBridge
 
-    development_url = os.environ.get("LINODL_FRONTEND_URL", "").strip()
+    development_url = os.environ.get("LINODL_FRONTEND_URL", "").strip() if debug else ""
     url = development_url or DesktopAssets.resolve().url
     bridge = DesktopBridge(config=config, debug=debug)
     window = webview.create_window(
