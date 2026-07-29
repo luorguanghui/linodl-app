@@ -27,6 +27,11 @@ vendor/cloakbrowser/cloak/
 .worktrees/
 .tmp-cloakbrowser-wheel/
 
+# React desktop build artifacts
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+
 # OS/editor noise
 .DS_Store
 Thumbs.db

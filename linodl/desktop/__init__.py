@@ -1,0 +1,1 @@
+"""React desktop shell integration."""
