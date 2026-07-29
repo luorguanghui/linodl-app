@@ -66,6 +66,8 @@ function noticeFor(_error: unknown): BridgeErrorDto {
 }
 
 function createDesktopState(api: DesktopApi): StateCreator<DesktopState> {
+  let commandSequence = 0;
+
   return (set, get) => ({
     tasks: [],
     taskVersion: -1,
@@ -118,30 +120,45 @@ function createDesktopState(api: DesktopApi): StateCreator<DesktopState> {
       }
     },
     async search(query) {
+      const sequence = ++commandSequence;
       set({
         activeOperationId: null,
         activeOperationKind: "search",
         selectedVolumes: [],
         notice: null,
       });
-      await startOperation(api.startSearch(query), set);
+      await startOperation(
+        api.startSearch(query),
+        set,
+        () => sequence === commandSequence,
+      );
     },
     async loadCatalog(url) {
+      const sequence = ++commandSequence;
       set({
         activeOperationId: null,
         activeOperationKind: "catalog",
         selectedVolumes: [],
         notice: null,
       });
-      await startOperation(api.loadCatalog(url), set);
+      await startOperation(
+        api.loadCatalog(url),
+        set,
+        () => sequence === commandSequence,
+      );
     },
     async startDownload(catalogOperationId, selectedVolumes) {
+      const sequence = ++commandSequence;
       set({
         activeOperationId: null,
         activeOperationKind: "download",
         notice: null,
       });
-      await startOperation(api.startDownload(catalogOperationId, selectedVolumes), set);
+      await startOperation(
+        api.startDownload(catalogOperationId, selectedVolumes),
+        set,
+        () => sequence === commandSequence,
+      );
     },
     toggleVolume(volumeName) {
       set((state) => ({
@@ -172,16 +189,23 @@ export function createDesktopStore(api: DesktopApi = desktopApi): StoreApi<Deskt
 async function startOperation(
   command: Promise<{ ok: boolean; operation_id?: string; error?: BridgeErrorDto }>,
   set: StoreApi<DesktopState>["setState"],
+  writeGuard: WriteGuard,
 ): Promise<void> {
   try {
     const response = await command;
     if (isBridgeError(response)) {
-      set({ notice: response.error });
+      if (writeGuard()) {
+        set({ notice: response.error });
+      }
       return;
     }
-    set({ activeOperationId: response.operation_id ?? null, notice: null });
+    if (writeGuard()) {
+      set({ activeOperationId: response.operation_id ?? null, notice: null });
+    }
   } catch (error) {
-    set({ notice: noticeFor(error) });
+    if (writeGuard()) {
+      set({ notice: noticeFor(error) });
+    }
   }
 }
 

@@ -52,6 +52,26 @@ describe("WorkbenchPage", () => {
     );
   });
 
+  it("normalizes a supported novel URL before loading its catalog", () => {
+    const loadCatalog = vi.fn();
+    render(
+      <WorkbenchPage
+        model={{ ...actions, state: "empty", loadCatalog } as never}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("作品名或目录地址"), {
+      target: {
+        value: "http://m.linovelib.com/novel/42/",
+      },
+    });
+    fireEvent.submit(screen.getByRole("form", { name: "查找作品或目录" }));
+
+    expect(loadCatalog).toHaveBeenCalledWith(
+      "https://www.linovelib.com/novel/42/catalog",
+    );
+  });
+
   it("rejects unsupported HTTP sources inline without calling the backend", () => {
     const search = vi.fn();
     const loadCatalog = vi.fn();
@@ -63,6 +83,30 @@ describe("WorkbenchPage", () => {
 
     fireEvent.change(screen.getByLabelText("作品名或目录地址"), {
       target: { value: "https://example.com/novel/1" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "查找作品" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "目前仅支持 linovelib.com 的作品或目录链接。",
+    );
+    expect(search).not.toHaveBeenCalled();
+    expect(loadCatalog).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "https://www.linovelib.com/",
+    "https://www.linovelib.com/help",
+  ])("rejects a non-novel linovelib URL inline: %s", (url) => {
+    const search = vi.fn();
+    const loadCatalog = vi.fn();
+    render(
+      <WorkbenchPage
+        model={{ ...actions, state: "empty", search, loadCatalog } as never}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("作品名或目录地址"), {
+      target: { value: url },
     });
     fireEvent.click(screen.getByRole("button", { name: "查找作品" }));
 
@@ -170,13 +214,17 @@ describe("WorkbenchPage", () => {
     expect(screen.getByText("HTTP 503 from upstream")).not.toBeVisible();
   });
 
-  it("derives one results state from a completed search operation", () => {
+  it("does not let a global notice replace an active operation result", () => {
     const model = deriveWorkbenchModel(
       {
         activeOperationId: "search-1",
         activeOperationKind: "search",
         selectedVolumes: ["旧选择"],
-        notice: null,
+        notice: {
+          code: "DESKTOP_API_UNAVAILABLE",
+          message: "桌面轮询暂时失败。",
+          action: "稍后重试。",
+        },
         operations: {
           "search-1": {
             id: "search-1",

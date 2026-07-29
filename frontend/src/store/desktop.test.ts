@@ -6,7 +6,7 @@ import {
   stopPolling,
   useDesktopStore,
 } from "./desktop";
-import type { BootstrapDto } from "../api/types";
+import type { BootstrapDto, BridgeOperationResult } from "../api/types";
 
 const snapshot: BootstrapDto = {
   task_version: 0,
@@ -120,6 +120,58 @@ describe("desktop store", () => {
     store.getState().toggleVolume("第一卷");
 
     expect(store.getState().selectedVolumes).toEqual(["第二卷"]);
+  });
+
+  it("keeps the newest operation id when repeated searches resolve out of order", async () => {
+    const first = deferred<BridgeOperationResult>();
+    const second = deferred<BridgeOperationResult>();
+    const api = {
+      startSearch: vi
+        .fn()
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(second.promise),
+    };
+    const store = createDesktopStore(api as never);
+
+    const firstCommand = store.getState().search("旧查询");
+    const secondCommand = store.getState().search("新查询");
+    second.resolve({ ok: true, operation_id: "new-operation" });
+    await secondCommand;
+    first.resolve({ ok: true, operation_id: "old-operation" });
+    await firstCommand;
+
+    expect(store.getState().activeOperationId).toBe("new-operation");
+    expect(store.getState().activeOperationKind).toBe("search");
+  });
+
+  it("ignores an older search error after a newer catalog command succeeds", async () => {
+    const search = deferred<BridgeOperationResult>();
+    const catalog = deferred<BridgeOperationResult>();
+    const api = {
+      startSearch: vi.fn().mockReturnValue(search.promise),
+      loadCatalog: vi.fn().mockReturnValue(catalog.promise),
+    };
+    const store = createDesktopStore(api as never);
+
+    const searchCommand = store.getState().search("旧查询");
+    const catalogCommand = store
+      .getState()
+      .loadCatalog("https://www.linovelib.com/novel/42/catalog");
+    catalog.resolve({ ok: true, operation_id: "catalog-operation" });
+    await catalogCommand;
+    search.resolve({
+      ok: false,
+      error: {
+        code: "OLD_SEARCH_FAILED",
+        message: "旧查询失败。",
+        action: "不应显示。",
+      },
+    });
+    await searchCommand;
+
+    expect(store.getState().activeOperationId).toBe("catalog-operation");
+    expect(store.getState().activeOperationKind).toBe("catalog");
+    expect(store.getState().notice).toBeNull();
   });
 
   it("does not expose an unstructured error message in the notice", async () => {

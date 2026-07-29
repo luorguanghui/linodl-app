@@ -186,7 +186,7 @@ export function deriveWorkbenchModel(
     ? operation.kind
     : snapshot.activeOperationKind;
 
-  if (snapshot.notice) {
+  if (!snapshot.activeOperationId && snapshot.notice) {
     return {
       ...actions,
       state: "failed",
@@ -281,21 +281,34 @@ function ConnectedWorkbenchPage() {
   return <WorkbenchView model={model} />;
 }
 
-function classifyInput(value: string): "empty" | "query" | "url" | "invalid_url" {
+type ClassifiedInput =
+  | { kind: "empty" }
+  | { kind: "invalid_url" }
+  | { kind: "query" | "url"; value: string };
+
+function classifyInput(value: string): ClassifiedInput {
   const trimmed = value.trim();
-  if (!trimmed) return "empty";
+  if (!trimmed) return { kind: "empty" };
   try {
     const parsed = new URL(trimmed);
     if (parsed.protocol === "http:" || parsed.protocol === "https:") {
       const host = parsed.hostname.toLowerCase();
-      return host === "linovelib.com" || host.endsWith(".linovelib.com")
-        ? "url"
-        : "invalid_url";
+      if (host !== "linovelib.com" && !host.endsWith(".linovelib.com")) {
+        return { kind: "invalid_url" };
+      }
+      const match = parsed.pathname.match(
+        /^\/novel\/(\d+)(?:\/catalog)?\/?$/,
+      );
+      if (!match) return { kind: "invalid_url" };
+      return {
+        kind: "url",
+        value: `https://www.linovelib.com/novel/${match[1]}/catalog`,
+      };
     }
   } catch {
-    return "query";
+    return { kind: "query", value: trimmed };
   }
-  return "query";
+  return { kind: "query", value: trimmed };
 }
 
 function WorkbenchView({ model }: { model: WorkbenchModel }) {
@@ -304,22 +317,21 @@ function WorkbenchView({ model }: { model: WorkbenchModel }) {
   const busy = model.state === "searching" || model.state === "downloading";
 
   function submitCommand() {
-    const value = command.trim();
-    const kind = classifyInput(value);
-    if (kind === "empty") {
+    const input = classifyInput(command);
+    if (input.kind === "empty") {
       setInputError("请输入作品名称或目录 URL。");
       return;
     }
-    if (kind === "invalid_url") {
+    if (input.kind === "invalid_url") {
       setInputError(invalidSourceMessage);
       return;
     }
     setInputError("");
-    if (kind === "url") {
-      void model.loadCatalog(value);
+    if (input.kind === "url") {
+      void model.loadCatalog(input.value);
       return;
     }
-    void model.search(value);
+    void model.search(input.value);
   }
 
   return (
