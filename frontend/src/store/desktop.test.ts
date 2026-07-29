@@ -55,6 +55,7 @@ describe("desktop store", () => {
     delete window.pywebview;
     vi.restoreAllMocks();
     vi.useRealTimers();
+    delete document.documentElement.dataset.theme;
   });
 
   it("keeps existing tasks when the bridge reports no version change", async () => {
@@ -284,6 +285,7 @@ describe("desktop store", () => {
     await store.getState().loadSettings();
     const saved = await store.getState().saveSettings({
       ...store.getState().settings,
+      clear_proxy: false,
       password: "",
       clear_password: false,
     });
@@ -293,6 +295,43 @@ describe("desktop store", () => {
     expect(api.saveSettings).toHaveBeenCalledWith(
       expect.objectContaining({ password: "", clear_password: false }),
     );
+  });
+
+  it("applies the bootstrapped theme to the document root", async () => {
+    const store = createDesktopStore({
+      bootstrap: vi.fn().mockResolvedValue({
+        ...snapshot,
+        config: { theme: "dark" },
+      }),
+    } as never);
+
+    await store.getState().bootstrap();
+
+    expect(document.documentElement).toHaveAttribute("data-theme", "dark");
+  });
+
+  it("applies saved light and auto themes without retaining credentials", async () => {
+    const saveSettings = vi.fn().mockResolvedValue({ ok: true });
+    const store = createDesktopStore({ saveSettings } as never);
+
+    await store.getState().saveSettings({
+      theme: "light",
+      proxy: "",
+      clear_proxy: false,
+      password: "",
+      clear_password: false,
+    });
+    expect(document.documentElement).toHaveAttribute("data-theme", "light");
+
+    await store.getState().saveSettings({
+      theme: "auto",
+      proxy: "",
+      clear_proxy: false,
+      password: "",
+      clear_password: false,
+    });
+    expect(document.documentElement).toHaveAttribute("data-theme", "auto");
+    expect(store.getState().settings).not.toHaveProperty("password");
   });
 
   it("activates completed verify and export results from the global inspector", () => {

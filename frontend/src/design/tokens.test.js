@@ -112,4 +112,14 @@ describe("visual tokens", () => {
       expect(contrastRatio(foreground, background)).toBeGreaterThanOrEqual(4.5);
     },
   );
+
+  it("defines explicit dark tokens and lets auto follow dark system preference", () => {
+    expect(tokensCss).toMatch(/:root\[data-theme="dark"\]\s*\{/);
+    expect(tokensCss).toMatch(
+      /@media\s*\(prefers-color-scheme:\s*dark\)[\s\S]*:root\[data-theme="auto"\]/,
+    );
+    expect(tokensCss).toMatch(
+      /:root\[data-theme="dark"\][\s\S]*--color-canvas:\s*#[0-9a-f]{6}/i,
+    );
+  });
 });

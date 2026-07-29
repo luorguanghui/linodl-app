@@ -356,6 +356,8 @@ def test_bridge_bootstrap_excludes_credentials_and_redacts_proxy(tmp_path):
     response = bridge.bootstrap()
 
     assert response["config"]["proxy"] == "socks5://***:***@127.0.0.1:1080"
+    assert response["config"]["has_proxy"] is True
+    assert response["config"]["proxy_has_credentials"] is True
     assert "username" not in response["config"]
     assert "password" not in response["config"]
     assert response["tasks"] == []
@@ -436,6 +438,127 @@ def test_bridge_settings_clear_password_only_when_explicitly_requested(tmp_path)
     assert response == {"ok": True}
     assert config.password == ""
     assert bridge.get_settings()["settings"]["has_password"] is False
+
+
+@pytest.mark.parametrize("clear_password", ["false", 1, None, []])
+def test_bridge_rejects_non_boolean_clear_password(
+    tmp_path,
+    clear_password,
+):
+    config = ConfigManager(str(tmp_path / "settings.ini"))
+    config.set_credentials("reader", "secret")
+    bridge = DesktopBridge(config, controller=FakeController())
+    settings = bridge.get_settings()["settings"]
+
+    response = bridge.save_settings(
+        {
+            **settings,
+            "password": "",
+            "clear_password": clear_password,
+        }
+    )
+
+    assert response["error"]["code"] == "INVALID_SETTINGS"
+    assert config.password == "secret"
+
+
+def test_bridge_keeps_credential_proxy_when_mask_is_not_edited(tmp_path):
+    config = ConfigManager(str(tmp_path / "settings.ini"))
+    config.proxy = "socks5://proxy-user:proxy-pass@127.0.0.1:1080"
+    bridge = DesktopBridge(config, controller=FakeController())
+
+    settings = bridge.get_settings()["settings"]
+    response = bridge.save_settings(
+        {
+            **settings,
+            "theme": "dark",
+            "proxy": "",
+            "clear_proxy": False,
+            "password": "",
+            "clear_password": False,
+        }
+    )
+
+    assert response == {"ok": True}
+    assert settings["proxy"] == "socks5://***:***@127.0.0.1:1080"
+    assert settings["has_proxy"] is True
+    assert settings["proxy_has_credentials"] is True
+    assert "proxy-pass" not in str(settings)
+    assert config.proxy == "socks5://proxy-user:proxy-pass@127.0.0.1:1080"
+    assert config.theme == "dark"
+
+
+def test_bridge_proxy_dto_redacts_username_only_userinfo(tmp_path):
+    config = ConfigManager(str(tmp_path / "settings.ini"))
+    config.proxy = "socks5://proxy-user@127.0.0.1:1080"
+    bridge = DesktopBridge(config, controller=FakeController())
+
+    settings = bridge.get_settings()["settings"]
+
+    assert settings["proxy"] == "socks5://***:***@127.0.0.1:1080"
+    assert settings["proxy_has_credentials"] is True
+    assert "proxy-user" not in str(settings)
+
+
+def test_bridge_proxy_can_be_explicitly_cleared_or_replaced(tmp_path):
+    config = ConfigManager(str(tmp_path / "settings.ini"))
+    config.proxy = "socks5://user:pass@127.0.0.1:1080"
+    bridge = DesktopBridge(config, controller=FakeController())
+    settings = bridge.get_settings()["settings"]
+
+    cleared = bridge.save_settings(
+        {
+            **settings,
+            "proxy": "",
+            "clear_proxy": True,
+            "password": "",
+            "clear_password": False,
+        }
+    )
+    assert cleared == {"ok": True}
+    assert config.proxy == ""
+
+    replaced = bridge.save_settings(
+        {
+            **settings,
+            "proxy": "http://127.0.0.1:8080",
+            "clear_proxy": False,
+            "password": "",
+            "clear_password": False,
+        }
+    )
+    assert replaced == {"ok": True}
+    assert config.proxy == "http://127.0.0.1:8080"
+
+
+def test_bridge_rejects_masked_or_invalid_proxy_protocol_values(tmp_path):
+    config = ConfigManager(str(tmp_path / "settings.ini"))
+    config.proxy = "socks5://user:pass@127.0.0.1:1080"
+    bridge = DesktopBridge(config, controller=FakeController())
+    settings = bridge.get_settings()["settings"]
+
+    masked = bridge.save_settings(
+        {
+            **settings,
+            "proxy": settings["proxy"],
+            "clear_proxy": False,
+            "password": "",
+            "clear_password": False,
+        }
+    )
+    invalid_clear = bridge.save_settings(
+        {
+            **settings,
+            "proxy": "",
+            "clear_proxy": "false",
+            "password": "",
+            "clear_password": False,
+        }
+    )
+
+    assert masked["error"]["code"] == "INVALID_SETTINGS"
+    assert invalid_clear["error"]["code"] == "INVALID_SETTINGS"
+    assert config.proxy == "socks5://user:pass@127.0.0.1:1080"
 
 
 def test_bridge_choose_directory_uses_attached_pywebview_window(tmp_path):
@@ -534,6 +657,36 @@ def test_bridge_lists_and_starts_only_configured_output_archives(tmp_path):
     assert payload["novel_info"].title == "作品 A"
     assert payload["base_dir"] == str((output_dir / "作品 A").resolve())
     assert payload["per_volume"] is True
+
+
+def test_bridge_space_separated_chapter_is_consumable_by_existing_workers(
+    tmp_path,
+):
+    output_dir = tmp_path / "output"
+    volume = output_dir / "作品 A" / "第一卷"
+    volume.mkdir(parents=True)
+    source = volume / "001 序章.txt"
+    source.write_text("正文", encoding="utf-8")
+    controller = FakeController()
+    config = ConfigManager(str(tmp_path / "settings.ini"))
+    config.output_dir = str(output_dir)
+    bridge = DesktopBridge(config, controller=controller)
+
+    assert bridge.start_verify("作品 A") == {
+        "ok": True,
+        "operation_id": "op-1",
+    }
+    _, verify_payload = controller.last
+    chapter = verify_payload["volumes"][0].chapters[0]
+    assert (chapter.index, chapter.title) == (1, "序章")
+    assert (volume / "001_序章.txt").read_text(encoding="utf-8") == "正文"
+
+    assert bridge.start_export("作品 A", True) == {
+        "ok": True,
+        "operation_id": "op-1",
+    }
+    _, export_payload = controller.last
+    assert export_payload["base_dir"] == str((output_dir / "作品 A").resolve())
 
 
 def test_bridge_rejects_archive_ids_outside_configured_output(tmp_path):

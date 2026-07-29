@@ -61,6 +61,8 @@ export interface DesktopSettingsDto {
   anti_bot_mode?: string;
   profile_dir?: string;
   proxy?: string;
+  has_proxy?: boolean;
+  proxy_has_credentials?: boolean;
   geoip?: boolean;
   theme?: string;
 }
@@ -68,6 +70,7 @@ export interface DesktopSettingsDto {
 export interface SaveSettingsDto extends DesktopSettingsDto {
   password: string;
   clear_password: boolean;
+  clear_proxy: boolean;
 }
 
 export interface ArchiveDto {

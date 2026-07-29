@@ -25,6 +25,8 @@ const defaults = {
   output_dir: "",
   profile_dir: "",
   proxy: "",
+  has_proxy: false,
+  proxy_has_credentials: false,
   geoip: false,
   headless: true,
   anti_bot_mode: "cloak",
@@ -48,11 +50,17 @@ function SettingsView({ model }: { model: SettingsModel }) {
   const [form, setForm] = useState({
     ...defaults,
     ...model.settings,
+    proxy: model.settings.proxy_has_credentials
+      ? ""
+      : model.settings.proxy ?? "",
     password: "",
     clear_password: false,
+    clear_proxy: false,
   });
   const [saving, setSaving] = useState(false);
-  const proxyConfigured = Boolean(form.proxy.trim());
+  const storedProxyConfigured = form.has_proxy && !form.clear_proxy;
+  const proxyConfigured =
+    Boolean(form.proxy.trim()) || storedProxyConfigured;
 
   useEffect(() => {
     void model.loadSettings?.();
@@ -62,8 +70,12 @@ function SettingsView({ model }: { model: SettingsModel }) {
     setForm((current) => ({
       ...current,
       ...model.settings,
+      proxy: model.settings.proxy_has_credentials
+        ? ""
+        : model.settings.proxy ?? "",
       password: "",
       clear_password: false,
+      clear_proxy: false,
     }));
   }, [model.settings]);
 
@@ -71,11 +83,20 @@ function SettingsView({ model }: { model: SettingsModel }) {
     key: K,
     value: (typeof form)[K],
   ) {
-    setForm((current) => ({
-      ...current,
-      [key]: value,
-      ...(key === "proxy" && !String(value).trim() ? { geoip: false } : {}),
-    }));
+    setForm((current) => {
+      const update = { ...current, [key]: value };
+      if (key === "clear_proxy" && value === true) {
+        return { ...update, geoip: false };
+      }
+      if (
+        key === "proxy" &&
+        !String(value).trim() &&
+        !(current.has_proxy && !current.clear_proxy)
+      ) {
+        return { ...update, geoip: false };
+      }
+      return update;
+    });
   }
 
   async function chooseFor(key: "output_dir" | "profile_dir") {
@@ -95,6 +116,7 @@ function SettingsView({ model }: { model: SettingsModel }) {
         output_dir: form.output_dir,
         profile_dir: form.profile_dir,
         proxy: form.proxy.trim(),
+        clear_proxy: form.clear_proxy,
         geoip: proxyConfigured && form.geoip,
         headless: form.headless,
         anti_bot_mode: form.anti_bot_mode,
@@ -204,11 +226,39 @@ function SettingsView({ model }: { model: SettingsModel }) {
             <span>代理地址</span>
             <input
               aria-label="代理地址"
-              placeholder="例如 socks5://127.0.0.1:1080"
+              placeholder={
+                form.proxy_has_credentials
+                  ? "留空以保留当前带凭据代理"
+                  : "例如 socks5://127.0.0.1:1080"
+              }
               value={form.proxy}
               onChange={(event) => update("proxy", event.target.value)}
             />
           </label>
+
+          <div className="settings-credential settings-span">
+            <div>
+              <p>代理状态</p>
+              <strong>
+                {form.proxy_has_credentials
+                  ? "已保存带凭据代理"
+                  : form.has_proxy
+                    ? "已保存代理"
+                    : "未保存代理"}
+              </strong>
+            </div>
+            <label className="utility-checkbox">
+              <input
+                type="checkbox"
+                checked={form.clear_proxy}
+                disabled={!form.has_proxy}
+                onChange={(event) =>
+                  update("clear_proxy", event.target.checked)
+                }
+              />
+              清除已保存代理
+            </label>
+          </div>
 
           <label className="utility-field">
             <span>反爬模式</span>

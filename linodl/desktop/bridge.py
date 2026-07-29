@@ -45,6 +45,7 @@ class DesktopBridge:
         try:
             self._drain_events()
             snapshot = self._controller.poll(-1, -1)
+            proxy = self._config.proxy
             return {
                 **snapshot,
                 "profile": self._profile_service.snapshot(),
@@ -54,7 +55,11 @@ class DesktopBridge:
                         "headless": self._config.headless,
                         "anti_bot_mode": self._config.anti_bot_mode,
                         "profile_dir": self._config.profile_dir,
-                        "proxy": self._config.proxy,
+                        "proxy": self._redact_proxy(proxy),
+                        "has_proxy": bool(proxy),
+                        "proxy_has_credentials": self._proxy_has_credentials(
+                            proxy
+                        ),
                         "geoip": self._config.geoip,
                         "theme": self._config.theme,
                     }
@@ -156,7 +161,10 @@ class DesktopBridge:
                 "请刷新归档列表后重试。",
             )
         try:
-            _, volumes, base_dir = load_archive(archive["path"])
+            _, volumes, base_dir = load_archive(
+                archive["path"],
+                self._config.output_dir,
+            )
         except Exception:
             return self._error(
                 "ARCHIVE_READ_FAILED",
@@ -185,7 +193,10 @@ class DesktopBridge:
                 "请刷新归档列表后重试。",
             )
         try:
-            novel_info, volumes, base_dir = load_archive(archive["path"])
+            novel_info, volumes, base_dir = load_archive(
+                archive["path"],
+                self._config.output_dir,
+            )
         except Exception:
             return self._error(
                 "ARCHIVE_READ_FAILED",
@@ -208,6 +219,7 @@ class DesktopBridge:
 
     def get_settings(self) -> dict:
         try:
+            proxy = self._config.proxy
             settings = {
                 "username": self._config.username,
                 "has_password": bool(self._config.password),
@@ -215,7 +227,9 @@ class DesktopBridge:
                 "headless": self._config.headless,
                 "anti_bot_mode": self._config.anti_bot_mode,
                 "profile_dir": self._config.profile_dir,
-                "proxy": self._config.proxy,
+                "proxy": self._redact_proxy(proxy),
+                "has_proxy": bool(proxy),
+                "proxy_has_credentials": self._proxy_has_credentials(proxy),
                 "geoip": self._config.geoip,
                 "theme": self._config.theme,
             }
@@ -229,19 +243,28 @@ class DesktopBridge:
 
     def save_settings(self, settings: Mapping[str, object]) -> dict:
         if not isinstance(settings, Mapping):
-            return self._error(
-                "INVALID_SETTINGS",
-                "设置内容无效。",
-                "请刷新设置页后重试。",
-            )
+            return self._invalid_settings()
         try:
+            clear_password = settings.get("clear_password", False)
+            clear_proxy = settings.get("clear_proxy", False)
+            if type(clear_password) is not bool or type(clear_proxy) is not bool:
+                return self._invalid_settings()
             password_input = str(settings.get("password", "") or "")
-            if bool(settings.get("clear_password", False)):
+            if clear_password:
                 password = ""
             elif password_input:
                 password = password_input
             else:
                 password = self._config.password
+            proxy_input = str(settings.get("proxy", "") or "").strip()
+            if self._is_masked_proxy(proxy_input):
+                return self._invalid_settings()
+            if clear_proxy:
+                proxy = ""
+            elif proxy_input:
+                proxy = proxy_input
+            else:
+                proxy = self._config.proxy
             self._config.update_settings(
                 username=str(
                     settings.get("username", self._config.username) or ""
@@ -264,7 +287,7 @@ class DesktopBridge:
                 profile_dir=str(
                     settings.get("profile_dir", self._config.profile_dir) or ""
                 ),
-                proxy=str(settings.get("proxy", self._config.proxy) or ""),
+                proxy=proxy,
                 geoip=self._setting_bool(
                     settings.get("geoip"),
                     self._config.geoip,
@@ -502,6 +525,39 @@ class DesktopBridge:
     @staticmethod
     def _setting_bool(value: object, fallback: bool) -> bool:
         return value if isinstance(value, bool) else fallback
+
+    @staticmethod
+    def _proxy_has_credentials(proxy: str) -> bool:
+        try:
+            parsed = urlsplit(proxy)
+        except ValueError:
+            return False
+        return parsed.username is not None or parsed.password is not None
+
+    @staticmethod
+    def _is_masked_proxy(proxy: str) -> bool:
+        return "://***" in proxy and "@" in proxy
+
+    @staticmethod
+    def _redact_proxy(proxy: str) -> str:
+        scheme_end = proxy.find("://")
+        if scheme_end < 0:
+            return proxy
+        userinfo_end = proxy.find("@", scheme_end + 3)
+        if userinfo_end < 0:
+            return proxy
+        return (
+            f"{proxy[:scheme_end + 3]}***:***"
+            f"{proxy[userinfo_end:]}"
+        )
+
+    @classmethod
+    def _invalid_settings(cls) -> dict:
+        return cls._error(
+            "INVALID_SETTINGS",
+            "设置内容无效。",
+            "请刷新设置页后重试。",
+        )
 
     @staticmethod
     def _is_valid_verification_target(target_url: str) -> bool:

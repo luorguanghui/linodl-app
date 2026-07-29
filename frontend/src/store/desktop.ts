@@ -88,6 +88,35 @@ function noticeFor(_error: unknown): BridgeErrorDto {
   return unavailableNotice;
 }
 
+function normalizeTheme(theme?: string): "auto" | "light" | "dark" {
+  return theme === "light" || theme === "dark" ? theme : "auto";
+}
+
+export function applyTheme(theme?: string): void {
+  document.documentElement.dataset.theme = normalizeTheme(theme);
+}
+
+function proxyHasCredentials(proxy: string): boolean {
+  try {
+    const parsed = new URL(proxy);
+    return Boolean(parsed.username || parsed.password);
+  } catch {
+    return false;
+  }
+}
+
+function redactedProxy(proxy: string): string {
+  if (!proxyHasCredentials(proxy)) return proxy;
+  try {
+    const parsed = new URL(proxy);
+    parsed.username = "***";
+    parsed.password = "***";
+    return parsed.toString();
+  } catch {
+    return "";
+  }
+}
+
 function createDesktopState(api: DesktopApi): StateCreator<DesktopState> {
   let commandSequence = 0;
 
@@ -118,6 +147,7 @@ function createDesktopState(api: DesktopApi): StateCreator<DesktopState> {
           return;
         }
         if (writeGuard()) {
+          applyTheme(response.config.theme);
           set((state) => ({
             ...mergeSnapshot(response)(state),
             settings: response.config,
@@ -308,6 +338,7 @@ function createDesktopState(api: DesktopApi): StateCreator<DesktopState> {
           set({ notice: response.error });
           return;
         }
+        applyTheme(response.settings.theme);
         set({ settings: response.settings, notice: null });
       } catch (error) {
         set({ notice: noticeFor(error) });
@@ -323,18 +354,38 @@ function createDesktopState(api: DesktopApi): StateCreator<DesktopState> {
         const {
           password,
           clear_password: clearPassword,
+          clear_proxy: clearProxy,
           ...safeSettings
         } = settings;
         set((state) => ({
-          settings: {
-            ...safeSettings,
-            has_password: clearPassword
+          settings: (() => {
+            const proxyInput = safeSettings.proxy?.trim() ?? "";
+            const hasProxy = clearProxy
               ? false
-              : Boolean(password) || state.settings.has_password,
-            geoip: Boolean(safeSettings.proxy?.trim()) && safeSettings.geoip,
-          },
+              : Boolean(proxyInput) || Boolean(state.settings.has_proxy);
+            const hasProxyCredentials = clearProxy
+              ? false
+              : proxyInput
+                ? proxyHasCredentials(proxyInput)
+                : Boolean(state.settings.proxy_has_credentials);
+            return {
+              ...safeSettings,
+              proxy: clearProxy
+                ? ""
+                : proxyInput
+                  ? redactedProxy(proxyInput)
+                  : state.settings.proxy,
+              has_proxy: hasProxy,
+              proxy_has_credentials: hasProxyCredentials,
+              has_password: clearPassword
+                ? false
+                : Boolean(password) || state.settings.has_password,
+              geoip: hasProxy && safeSettings.geoip,
+            };
+          })(),
           notice: null,
         }));
+        applyTheme(settings.theme);
         return true;
       } catch (error) {
         set({ notice: noticeFor(error) });
