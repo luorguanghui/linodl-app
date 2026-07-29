@@ -16,7 +16,7 @@ body {
   margin: 0;
   color: var(--color-text);
   background:
-    linear-gradient(115deg, rgb(49 88 201 / 3%), transparent 32%),
+    linear-gradient(115deg, var(--color-canvas-wash), transparent 32%),
     var(--color-canvas);
   font-family: var(--font-body);
   font-size: var(--text-md);
@@ -88,9 +88,9 @@ a:focus-visible {
   overflow: hidden;
   color: var(--color-text-on-ink);
   background:
-    linear-gradient(90deg, rgb(255 255 255 / 4%), transparent 22%),
+    linear-gradient(90deg, var(--color-ink-sheen), transparent 22%),
     var(--color-ink);
-  box-shadow: 8px 0 26px rgb(22 36 61 / 8%);
+  box-shadow: var(--shadow-rail);
 }
 
 .book-rail::after {
@@ -100,8 +100,8 @@ a:focus-visible {
   content: "";
   background: linear-gradient(
     transparent,
-    rgb(255 255 255 / 12%) 12%,
-    rgb(255 255 255 / 12%) 88%,
+    var(--color-border-on-ink-muted) 12%,
+    var(--color-border-on-ink-muted) 88%,
     transparent
   );
 }
@@ -120,12 +120,12 @@ a:focus-visible {
   height: 42px;
   flex: 0 0 auto;
   place-items: center;
-  border: 1px solid rgb(255 255 255 / 18%);
+  border: 1px solid var(--color-border-on-ink);
   border-radius: var(--radius-2) var(--radius-1) var(--radius-1)
     var(--radius-2);
   color: var(--color-warning-soft);
   background: var(--color-ink-soft);
-  box-shadow: inset 4px 0 rgb(228 165 62 / 75%);
+  box-shadow: inset 4px 0 var(--color-accent-inset);
 }
 
 .rail-brand-copy {
@@ -182,12 +182,12 @@ a:focus-visible {
 
 .rail-nav-button:hover {
   color: var(--color-text-on-ink);
-  background: rgb(255 255 255 / 7%);
+  background: var(--color-ink-overlay-hover);
   transform: translateX(2px);
 }
 
 .rail-nav-button[aria-current="page"] {
-  border-color: rgb(255 255 255 / 9%);
+  border-color: var(--color-border-on-ink-subtle);
   color: var(--color-text-on-ink);
   background: var(--color-ink-soft);
   box-shadow: inset 3px 0 var(--color-focus);
@@ -240,7 +240,7 @@ a:focus-visible {
   padding: var(--space-3) var(--space-4);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-3);
-  background: rgb(255 255 255 / 88%);
+  background: var(--color-surface-translucent);
   box-shadow: var(--shadow-resting);
   backdrop-filter: blur(12px);
 }
@@ -349,7 +349,7 @@ a:focus-visible {
 }
 
 .chapter-bookmark[aria-current="step"] {
-  color: white;
+  color: var(--color-text-on-action);
   background: var(--color-primary);
   transform: translateY(1px);
 }
@@ -490,7 +490,7 @@ a:focus-visible {
 .page-error-button {
   margin-top: var(--space-5);
   padding: 9px 14px;
-  color: white;
+  color: var(--color-text-on-action);
   background: var(--color-primary);
   font-weight: 700;
 }
@@ -553,7 +553,8 @@ a:focus-visible {
 .task-notice {
   margin: var(--space-4) var(--space-4) 0;
   padding: var(--space-3);
-  border: 1px solid color-mix(in srgb, var(--color-danger) 25%, white);
+  border: 1px solid
+    color-mix(in srgb, var(--color-danger) 25%, var(--color-surface));
   border-radius: var(--radius-2);
   color: var(--color-danger);
   background: var(--color-danger-soft);
@@ -618,7 +619,7 @@ a:focus-visible {
   border-radius: 999px;
   color: var(--color-primary);
   background: var(--color-primary-soft);
-  font-size: 0.68rem;
+  font-size: var(--text-xs);
   font-weight: 700;
 }
 
