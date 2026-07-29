@@ -528,28 +528,15 @@ class DesktopBridge:
 
     @staticmethod
     def _proxy_has_credentials(proxy: str) -> bool:
-        try:
-            parsed = urlsplit(proxy)
-        except ValueError:
-            return False
-        return parsed.username is not None or parsed.password is not None
+        return "@" in proxy
 
     @staticmethod
     def _is_masked_proxy(proxy: str) -> bool:
-        return "://***" in proxy and "@" in proxy
+        return proxy == "***" or ("://***" in proxy and "@" in proxy)
 
     @staticmethod
     def _redact_proxy(proxy: str) -> str:
-        scheme_end = proxy.find("://")
-        if scheme_end < 0:
-            return proxy
-        userinfo_end = proxy.find("@", scheme_end + 3)
-        if userinfo_end < 0:
-            return proxy
-        return (
-            f"{proxy[:scheme_end + 3]}***:***"
-            f"{proxy[userinfo_end:]}"
-        )
+        return "***" if "@" in proxy else proxy
 
     @classmethod
     def _invalid_settings(cls) -> dict:

@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import os
 import re
-import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
@@ -44,6 +42,7 @@ class ArchivePathGuard:
 @dataclass(frozen=True)
 class ChapterSource:
     path: Path
+    filename: str
     index: int
     title: str
     canonical_name: str
@@ -127,11 +126,6 @@ def _build_volume(
 ) -> Volume:
     volume = Volume(name=name)
     for source in _chapter_sources(path, guard):
-        canonical_path = path / source.canonical_name
-        if source.path.name != source.canonical_name:
-            _materialize_canonical_alias(source.path, canonical_path, guard)
-        else:
-            guard.resolve(canonical_path)
         volume.chapters.append(
             Chapter(
                 index=source.index,
@@ -139,6 +133,7 @@ def _build_volume(
                 title=source.title,
                 is_illustration=False,
                 volume_name=name,
+                source_filename=source.filename,
             )
         )
     if _validate_illustrations(path, guard):
@@ -178,6 +173,7 @@ def _chapter_sources(
                 child.name == canonical_name,
                 ChapterSource(
                     path=resolved,
+                    filename=child.name,
                     index=index,
                     title=title,
                     canonical_name=canonical_name,
@@ -248,29 +244,3 @@ def _validate_tree(
     for _, resolved in _safe_children(resolved_directory, guard):
         if resolved.is_dir():
             _validate_tree(resolved, guard, visited)
-
-
-def _materialize_canonical_alias(
-    source: Path,
-    destination: Path,
-    guard: ArchivePathGuard,
-) -> None:
-    source = guard.resolve(source)
-    guard.resolve(destination.parent)
-    if destination.exists():
-        guard.resolve(destination)
-        return
-    try:
-        os.link(source, destination)
-    except FileExistsError:
-        pass
-    except OSError:
-        try:
-            with source.open("rb") as source_file:
-                with destination.open("xb") as destination_file:
-                    shutil.copyfileobj(source_file, destination_file)
-        except FileExistsError:
-            pass
-    resolved_destination = guard.resolve(destination)
-    if not resolved_destination.is_file():
-        raise UnsafeArchivePath("canonical chapter alias is not a file")

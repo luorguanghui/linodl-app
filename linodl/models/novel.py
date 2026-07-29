@@ -1,6 +1,7 @@
 """Data models for novels, volumes, chapters, and download results."""
 
 from dataclasses import dataclass, field
+from pathlib import PurePath
 
 
 @dataclass
@@ -23,6 +24,18 @@ class Chapter:
     title: str
     is_illustration: bool
     volume_name: str = ""
+    source_filename: str = ""
+
+
+def chapter_source_filename(chapter: Chapter, canonical_filename: str) -> str:
+    """Return a safe archive basename or the caller's canonical fallback."""
+    source = chapter.source_filename
+    if not isinstance(source, str) or not source or source in {".", ".."}:
+        return canonical_filename
+    path = PurePath(source)
+    if path.is_absolute() or len(path.parts) != 1 or path.name != source:
+        return canonical_filename
+    return source
 
 
 @dataclass

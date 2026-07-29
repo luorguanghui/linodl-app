@@ -3,7 +3,7 @@
 import os
 import re
 
-from ..models.novel import NovelInfo, Volume
+from ..models.novel import NovelInfo, Volume, chapter_source_filename
 
 
 class EpubExporter:
@@ -73,7 +73,8 @@ class EpubExporter:
             for ch in vol.chapters:
                 if ch.is_illustration:
                     continue
-                fname = f"{ch.index:03d}_{self._sanitize(ch.title)}.txt"
+                canonical_fname = f"{ch.index:03d}_{self._sanitize(ch.title)}.txt"
+                fname = chapter_source_filename(ch, canonical_fname)
                 fpath = os.path.join(vol_path, fname)
                 if not os.path.exists(fpath):
                     continue

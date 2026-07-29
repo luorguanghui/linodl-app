@@ -355,7 +355,7 @@ def test_bridge_bootstrap_excludes_credentials_and_redacts_proxy(tmp_path):
 
     response = bridge.bootstrap()
 
-    assert response["config"]["proxy"] == "socks5://***:***@127.0.0.1:1080"
+    assert response["config"]["proxy"] == "***"
     assert response["config"]["has_proxy"] is True
     assert response["config"]["proxy_has_credentials"] is True
     assert "username" not in response["config"]
@@ -480,7 +480,7 @@ def test_bridge_keeps_credential_proxy_when_mask_is_not_edited(tmp_path):
     )
 
     assert response == {"ok": True}
-    assert settings["proxy"] == "socks5://***:***@127.0.0.1:1080"
+    assert settings["proxy"] == "***"
     assert settings["has_proxy"] is True
     assert settings["proxy_has_credentials"] is True
     assert "proxy-pass" not in str(settings)
@@ -495,9 +495,47 @@ def test_bridge_proxy_dto_redacts_username_only_userinfo(tmp_path):
 
     settings = bridge.get_settings()["settings"]
 
-    assert settings["proxy"] == "socks5://***:***@127.0.0.1:1080"
+    assert settings["proxy"] == "***"
     assert settings["proxy_has_credentials"] is True
     assert "proxy-user" not in str(settings)
+
+
+@pytest.mark.parametrize(
+    ("proxy", "credential_fragments"),
+    [
+        (
+            "plain-user:plain-secret@127.0.0.1:1080",
+            ("plain-user", "plain-secret"),
+        ),
+        (
+            "socks5://multi-user:alpha@omega@127.0.0.1:1080",
+            ("multi-user", "alpha", "omega"),
+        ),
+        (
+            "socks5://solo-user@127.0.0.1:1080",
+            ("solo-user",),
+        ),
+    ],
+)
+def test_bridge_proxy_dtos_fail_closed_for_any_userinfo(
+    tmp_path,
+    proxy,
+    credential_fragments,
+):
+    config = ConfigManager(str(tmp_path / "settings.ini"))
+    config.proxy = proxy
+    bridge = DesktopBridge(config, controller=FakeController())
+
+    bootstrap_config = bridge.bootstrap()["config"]
+    settings = bridge.get_settings()["settings"]
+
+    assert bootstrap_config["proxy"] == "***"
+    assert settings["proxy"] == "***"
+    assert bootstrap_config["proxy_has_credentials"] is True
+    assert settings["proxy_has_credentials"] is True
+    for fragment in credential_fragments:
+        assert fragment not in str(bootstrap_config)
+        assert fragment not in str(settings)
 
 
 def test_bridge_proxy_can_be_explicitly_cleared_or_replaced(tmp_path):
@@ -678,8 +716,12 @@ def test_bridge_space_separated_chapter_is_consumable_by_existing_workers(
     }
     _, verify_payload = controller.last
     chapter = verify_payload["volumes"][0].chapters[0]
-    assert (chapter.index, chapter.title) == (1, "序章")
-    assert (volume / "001_序章.txt").read_text(encoding="utf-8") == "正文"
+    assert (chapter.index, chapter.title, chapter.source_filename) == (
+        1,
+        "序章",
+        "001 序章.txt",
+    )
+    assert not (volume / "001_序章.txt").exists()
 
     assert bridge.start_export("作品 A", True) == {
         "ok": True,
@@ -687,6 +729,7 @@ def test_bridge_space_separated_chapter_is_consumable_by_existing_workers(
     }
     _, export_payload = controller.last
     assert export_payload["base_dir"] == str((output_dir / "作品 A").resolve())
+    assert export_payload["volumes"][0].chapters[0].source_filename == "001 序章.txt"
 
 
 def test_bridge_rejects_archive_ids_outside_configured_output(tmp_path):

@@ -11,7 +11,15 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 from urllib.parse import urljoin
 
-from ..models.novel import Chapter, ChapterIssue, DownloadResult, NovelInfo, VerificationResult, Volume
+from ..models.novel import (
+    Chapter,
+    ChapterIssue,
+    DownloadResult,
+    NovelInfo,
+    VerificationResult,
+    Volume,
+    chapter_source_filename,
+)
 from .browser import BASE_URL, is_cloudflare_challenge
 
 
@@ -797,7 +805,8 @@ class Downloader:
         return result
 
     def _verify_text_chapter(self, vol_dir, ch: Chapter, result: VerificationResult):
-        filename = f"{ch.index:03d}_{sanitize(ch.title)}.txt"
+        canonical_filename = f"{ch.index:03d}_{sanitize(ch.title)}.txt"
+        filename = chapter_source_filename(ch, canonical_filename)
         filepath = os.path.join(vol_dir, filename)
 
         if not os.path.exists(filepath):
