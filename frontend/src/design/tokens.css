@@ -1,0 +1,68 @@
+:root {
+  color-scheme: light;
+
+  --color-ink: #16243d;
+  --color-ink-soft: #213352;
+  --color-canvas: #f2f5f7;
+  --color-surface: #ffffff;
+  --color-surface-elevated: #fffefa;
+  --color-primary: #3158c9;
+  --color-primary-strong: #2446aa;
+  --color-primary-soft: #e8edff;
+  --color-warning: #be7919;
+  --color-warning-soft: #fff3d8;
+  --color-success: #177f73;
+  --color-success-soft: #def4ee;
+  --color-danger: #b84a52;
+  --color-danger-soft: #fdebed;
+  --color-text: #1a2535;
+  --color-text-muted: #657084;
+  --color-text-on-ink: #f7f9fc;
+  --color-text-on-ink-muted: #aebbd0;
+  --color-border: #dce2e9;
+  --color-border-strong: #c9d1dc;
+  --color-focus: #e4a53e;
+
+  --font-display:
+    "Segoe UI Variable Display", "Microsoft YaHei UI", "PingFang SC",
+    sans-serif;
+  --font-body:
+    "Segoe UI Variable Text", "Microsoft YaHei UI", "PingFang SC",
+    system-ui, sans-serif;
+  --font-reading:
+    "Iowan Old Style", "Palatino Linotype", "Songti SC", "SimSun", serif;
+  --font-mono:
+    "Cascadia Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
+  --text-md: 0.9375rem;
+  --text-lg: 1.125rem;
+  --text-xl: clamp(1.5rem, 2vw, 2rem);
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  --radius-1: 6px;
+  --radius-2: 10px;
+  --radius-3: 12px;
+  --radius-4: 16px;
+
+  --shadow-resting: 0 12px 32px rgb(29 43 67 / 8%);
+
+  --duration-fast: 140ms;
+  --duration-standard: 220ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 1ms;
+    --duration-standard: 1ms;
+  }
+}
