@@ -1175,12 +1175,12 @@ Restore to normal size and verify the layout returns without restarting.
 
 - [ ] **Step 3: Run business smoke checks**
 
-- Enter a search query and confirm a task appears.
-- Cancel before completion and confirm the task reaches cancelled state.
-- Open the browser profile page without starting manual verification.
+- Open each primary page and confirm its main controls render.
+- Confirm the global task inspector remains mounted while switching pages.
+- Open the browser profile page without starting a profile check or manual verification.
 - Run the existing isolated CloakBrowser `about:blank` smoke script.
 
-Do not perform a full novel download for basic acceptance.
+Do not perform a live search, catalog fetch, novel download, profile check, or manual verification for basic acceptance. Those paths remain covered by automated tests.
 
 - [ ] **Step 4: Check change scope**
 
