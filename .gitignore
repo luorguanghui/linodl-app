@@ -24,6 +24,7 @@ vendor/cloakbrowser/cloak/
 
 # Local design and dependency-sync workspaces
 .superpowers/
+.worktrees/
 .tmp-cloakbrowser-wheel/
 
 # OS/editor noise
