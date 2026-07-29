@@ -29,6 +29,8 @@ afterEach(() => {
     operations: {},
     operationVersion: -1,
     activeOperationId: null,
+    activeOperationKind: null,
+    selectedVolumes: [],
     profile: "unknown",
     settings: {},
     notice: null,

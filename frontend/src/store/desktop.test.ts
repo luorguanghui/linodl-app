@@ -40,6 +40,8 @@ describe("desktop store", () => {
       operations: {},
       operationVersion: -1,
       activeOperationId: null,
+      activeOperationKind: null,
+      selectedVolumes: [],
       profile: "unknown",
       settings: {},
       notice: null,
@@ -108,6 +110,16 @@ describe("desktop store", () => {
       message: "请输入作品名。",
       action: "输入后重试。",
     });
+  });
+
+  it("keeps selected volume names in the desktop store", () => {
+    const store = createDesktopStore({} as never);
+
+    store.getState().toggleVolume("第一卷");
+    store.getState().toggleVolume("第二卷");
+    store.getState().toggleVolume("第一卷");
+
+    expect(store.getState().selectedVolumes).toEqual(["第二卷"]);
   });
 
   it("does not expose an unstructured error message in the notice", async () => {

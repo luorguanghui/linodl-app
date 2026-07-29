@@ -13,6 +13,7 @@ import type {
 } from "../api/types";
 
 export type ProfileState = "unknown";
+export type WorkbenchOperationKind = "search" | "catalog" | "download";
 type WriteGuard = () => boolean;
 
 const allowWrites: WriteGuard = () => true;
@@ -23,6 +24,8 @@ export interface DesktopState {
   operations: OperationMapDto;
   operationVersion: number;
   activeOperationId: string | null;
+  activeOperationKind: WorkbenchOperationKind | null;
+  selectedVolumes: string[];
   profile: ProfileState;
   settings: DesktopSettingsDto;
   notice: BridgeErrorDto | null;
@@ -33,6 +36,7 @@ export interface DesktopState {
   search(query: string): Promise<void>;
   loadCatalog(url: string): Promise<void>;
   startDownload(catalogOperationId: string, selectedVolumes: string[]): Promise<void>;
+  toggleVolume(volumeName: string): void;
   cancelTask(taskId: string): Promise<void>;
 }
 
@@ -68,6 +72,8 @@ function createDesktopState(api: DesktopApi): StateCreator<DesktopState> {
     operations: {},
     operationVersion: -1,
     activeOperationId: null,
+    activeOperationKind: null,
+    selectedVolumes: [],
     profile: "unknown",
     settings: {},
     notice: null,
@@ -112,13 +118,37 @@ function createDesktopState(api: DesktopApi): StateCreator<DesktopState> {
       }
     },
     async search(query) {
+      set({
+        activeOperationId: null,
+        activeOperationKind: "search",
+        selectedVolumes: [],
+        notice: null,
+      });
       await startOperation(api.startSearch(query), set);
     },
     async loadCatalog(url) {
+      set({
+        activeOperationId: null,
+        activeOperationKind: "catalog",
+        selectedVolumes: [],
+        notice: null,
+      });
       await startOperation(api.loadCatalog(url), set);
     },
     async startDownload(catalogOperationId, selectedVolumes) {
+      set({
+        activeOperationId: null,
+        activeOperationKind: "download",
+        notice: null,
+      });
       await startOperation(api.startDownload(catalogOperationId, selectedVolumes), set);
+    },
+    toggleVolume(volumeName) {
+      set((state) => ({
+        selectedVolumes: state.selectedVolumes.includes(volumeName)
+          ? state.selectedVolumes.filter((name) => name !== volumeName)
+          : [...state.selectedVolumes, volumeName],
+      }));
     },
     async cancelTask(taskId) {
       try {

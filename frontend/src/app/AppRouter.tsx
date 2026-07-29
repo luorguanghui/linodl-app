@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 
 import { EmptyState } from "../components/EmptyState";
+import { WorkbenchPage } from "../features/workbench/WorkbenchPage";
 
 export type PageKey =
   | "workbench"
@@ -114,12 +115,16 @@ export function AppRouter({ page }: AppRouterProps) {
         <span className="stage-folio">LINODL / {definition.chapter}</span>
       </header>
 
-      <EmptyState
-        icon={<PageIcon size={22} strokeWidth={1.8} />}
-        kicker={definition.emptyKicker}
-        title={definition.emptyTitle}
-        detail={definition.emptyDetail}
-      />
+      {page === "workbench" ? (
+        <WorkbenchPage />
+      ) : (
+        <EmptyState
+          icon={<PageIcon size={22} strokeWidth={1.8} />}
+          kicker={definition.emptyKicker}
+          title={definition.emptyTitle}
+          detail={definition.emptyDetail}
+        />
+      )}
     </article>
   );
 }
