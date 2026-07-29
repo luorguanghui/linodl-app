@@ -31,7 +31,8 @@ afterEach(() => {
     activeOperationId: null,
     activeOperationKind: null,
     selectedVolumes: [],
-    profile: "unknown",
+    pendingCancellationIds: [],
+    profile: { status: "unknown", detail: "" },
     settings: {},
     notice: null,
   });

@@ -30,6 +30,18 @@ class CatalogOperationNotFound(ValueError):
     """Raised when a download references a catalog result not held by Python."""
 
 
+class CatalogReloadRequired(ValueError):
+    """Raised when a restarted download no longer has cached catalog data."""
+
+
+class TaskInputNotFound(ValueError):
+    """Raised when a task cannot be recovered from a persisted input snapshot."""
+
+
+class UnsupportedTaskInput(ValueError):
+    """Raised when a persisted task kind is not supported by desktop recovery."""
+
+
 @dataclass(frozen=True)
 class OperationOwner:
     operation_id: str
@@ -64,6 +76,7 @@ class DesktopController:
         self._operations: dict[str, OperationRecord] = {}
         self._workers: dict[str, object] = {}
         self._catalog_results: dict[str, tuple[object, object]] = {}
+        self._catalog_source_urls: dict[str, str] = {}
         self._operation_version = 0
         self._cancel_callback = cancel_callback
 
@@ -89,6 +102,7 @@ class DesktopController:
                 config,
                 q,
                 owner,
+                output_dir=payload.get("output_dir"),
             ),
             "verify": lambda payload, q, owner: VerifyWorker(
                 payload["volumes"],
@@ -125,6 +139,10 @@ class DesktopController:
                 status="running",
             )
             self._workers[operation_id] = worker
+            if kind == "catalog":
+                self._catalog_source_urls[operation_id] = str(
+                    payload.get("url", "")
+                ).strip()
             self._operation_version += 1
         try:
             worker.start()
@@ -233,3 +251,50 @@ class DesktopController:
                     self._operation_version += 1
                     break
         return True
+
+    def restart(self, task_id: str) -> str:
+        try:
+            record = self._task_store.get(task_id)
+        except KeyError as exc:
+            raise TaskInputNotFound(task_id) from exc
+        snapshot = record.input_snapshot
+        if snapshot is None:
+            raise TaskInputNotFound(task_id)
+
+        if snapshot.kind == "search" and snapshot.query.strip():
+            return self.start("search", query=snapshot.query.strip())
+        if snapshot.kind == "catalog" and snapshot.url.strip():
+            return self.start("catalog", url=snapshot.url.strip())
+        if snapshot.kind == "warmup":
+            return self.start("warmup")
+        if snapshot.kind == "download":
+            return self._restart_download(snapshot)
+        if snapshot.kind in {"search", "catalog"}:
+            raise TaskInputNotFound(task_id)
+        raise UnsupportedTaskInput(snapshot.kind or "<empty>")
+
+    def _restart_download(self, snapshot) -> str:
+        url = snapshot.url.strip()
+        selected_volumes = list(snapshot.selected_volumes)
+        if not url or not selected_volumes:
+            raise TaskInputNotFound("download")
+        with self._lock:
+            catalog_operation_id = next(
+                (
+                    operation_id
+                    for operation_id, source_url in reversed(
+                        list(self._catalog_source_urls.items())
+                    )
+                    if source_url == url and operation_id in self._catalog_results
+                ),
+                None,
+            )
+        if catalog_operation_id is None:
+            raise CatalogReloadRequired(url)
+        payload = {
+            "catalog_operation_id": catalog_operation_id,
+            "selected_volumes": selected_volumes,
+        }
+        if snapshot.output_dir:
+            payload["output_dir"] = snapshot.output_dir
+        return self.start("download", **payload)

@@ -6,16 +6,18 @@ import { EmptyState } from "./EmptyState";
 
 const taskStatusLabels: Record<TaskStatus, string> = {
   queued: "已排队",
-  waiting_for_profile: "等待配置",
+  waiting_for_profile: "等待档案",
   running: "进行中",
-  waiting_for_verification: "等待校验",
+  waiting_for_verification: "等待验证",
   cancelling: "取消中",
   cancelled: "已取消",
   failed: "失败",
   completed: "已完成",
 };
 
-function statusTone(status: TaskStatus): "default" | "success" | "warning" | "danger" {
+function statusTone(
+  status: TaskStatus,
+): "default" | "success" | "warning" | "danger" {
   if (status === "completed") return "success";
   if (status === "failed" || status === "cancelled") return "danger";
   if (
@@ -33,15 +35,30 @@ function progressPercent(progress: number): number {
 }
 
 function canCancel(task: TaskDto): boolean {
-  return !["cancelling", "cancelled", "failed", "completed"].includes(
-    task.status,
-  );
+  return ["queued", "waiting_for_profile", "running"].includes(task.status);
 }
 
-export function TaskInspector() {
-  const tasks = useDesktopStore((state) => state.tasks);
+function verificationTarget(task: TaskDto): string {
+  return task.input_snapshot?.url || "https://www.linovelib.com";
+}
+
+interface TaskInspectorProps {
+  tasks?: TaskDto[];
+}
+
+export function TaskInspector({ tasks: tasksOverride }: TaskInspectorProps = {}) {
+  useDesktopStore((state) => state.taskVersion);
+  const tasks = tasksOverride ?? useDesktopStore.getState().tasks;
+  const pendingCancellationIds = useDesktopStore(
+    (state) => state.pendingCancellationIds,
+  );
   const notice = useDesktopStore((state) => state.notice);
   const cancelTask = useDesktopStore((state) => state.cancelTask);
+  const restartTask = useDesktopStore((state) => state.restartTask);
+  const startManualVerification = useDesktopStore(
+    (state) => state.startManualVerification,
+  );
+  const viewTaskResult = useDesktopStore((state) => state.viewTaskResult);
 
   return (
     <aside className="task-inspector" aria-label="任务检查器">
@@ -77,6 +94,8 @@ export function TaskInspector() {
         <ol className="task-list">
           {tasks.map((task) => {
             const percent = progressPercent(task.progress);
+            const cancellationPending =
+              pendingCancellationIds.includes(task.id);
 
             return (
               <li className="task-card" key={task.id}>
@@ -105,18 +124,50 @@ export function TaskInspector() {
                   <p className="task-progress-label">{percent}%</p>
                 </div>
 
-                {canCancel(task) ? (
-                  <div className="task-card-actions">
+                <div className="task-card-actions">
+                  {canCancel(task) ? (
                     <button
-                      className="task-cancel-button"
+                      className="task-action-button task-cancel-button"
                       type="button"
                       aria-label={`取消${task.title}`}
+                      disabled={cancellationPending}
                       onClick={() => void cancelTask(task.id)}
                     >
-                      取消任务
+                      {cancellationPending ? "正在取消" : "取消任务"}
                     </button>
-                  </div>
-                ) : null}
+                  ) : null}
+                  {task.status === "waiting_for_verification" ? (
+                    <button
+                      className="task-action-button"
+                      type="button"
+                      onClick={() =>
+                        void startManualVerification(verificationTarget(task))
+                      }
+                    >
+                      打开人工验证
+                    </button>
+                  ) : null}
+                  {task.status === "failed" || task.status === "cancelled" ? (
+                    <button
+                      className="task-action-button"
+                      type="button"
+                      aria-label={`重新开始${task.title}`}
+                      onClick={() => void restartTask(task.id)}
+                    >
+                      重新开始
+                    </button>
+                  ) : null}
+                  {task.status === "completed" ? (
+                    <button
+                      className="task-action-button"
+                      type="button"
+                      aria-label={`查看${task.title}结果`}
+                      onClick={() => viewTaskResult(task.id)}
+                    >
+                      查看结果
+                    </button>
+                  ) : null}
+                </div>
               </li>
             );
           })}

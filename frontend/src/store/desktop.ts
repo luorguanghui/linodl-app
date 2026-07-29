@@ -10,9 +10,10 @@ import type {
   TaskDto,
   OperationMapDto,
   DesktopSettingsDto,
+  ProfileHealthDto,
 } from "../api/types";
 
-export type ProfileState = "unknown";
+export type ProfileState = ProfileHealthDto;
 export type WorkbenchOperationKind = "search" | "catalog" | "download";
 type WriteGuard = () => boolean;
 
@@ -26,6 +27,7 @@ export interface DesktopState {
   activeOperationId: string | null;
   activeOperationKind: WorkbenchOperationKind | null;
   selectedVolumes: string[];
+  pendingCancellationIds: string[];
   profile: ProfileState;
   settings: DesktopSettingsDto;
   notice: BridgeErrorDto | null;
@@ -38,6 +40,10 @@ export interface DesktopState {
   startDownload(catalogOperationId: string, selectedVolumes: string[]): Promise<void>;
   toggleVolume(volumeName: string): void;
   cancelTask(taskId: string): Promise<void>;
+  restartTask(taskId: string): Promise<void>;
+  checkProfile(): Promise<void>;
+  startManualVerification(targetUrl: string): Promise<void>;
+  viewTaskResult(taskId: string): void;
 }
 
 const unavailableNotice: BridgeErrorDto = {
@@ -58,6 +64,7 @@ function mergeSnapshot(snapshot: PollDto) {
     tasks: snapshot.tasks ?? state.tasks,
     operationVersion: snapshot.operation_version,
     operations: snapshot.operations ?? state.operations,
+    profile: snapshot.profile ?? state.profile,
   });
 }
 
@@ -76,7 +83,8 @@ function createDesktopState(api: DesktopApi): StateCreator<DesktopState> {
     activeOperationId: null,
     activeOperationKind: null,
     selectedVolumes: [],
-    profile: "unknown",
+    pendingCancellationIds: [],
+    profile: { status: "unknown", detail: "" },
     settings: {},
     notice: null,
     async bootstrap(writeGuard = allowWrites) {
@@ -168,6 +176,12 @@ function createDesktopState(api: DesktopApi): StateCreator<DesktopState> {
       }));
     },
     async cancelTask(taskId) {
+      if (get().pendingCancellationIds.includes(taskId)) {
+        return;
+      }
+      set((state) => ({
+        pendingCancellationIds: [...state.pendingCancellationIds, taskId],
+      }));
       try {
         const response = await api.cancel(taskId);
         if (isBridgeError(response)) {
@@ -177,6 +191,44 @@ function createDesktopState(api: DesktopApi): StateCreator<DesktopState> {
         set({ notice: null });
       } catch (error) {
         set({ notice: noticeFor(error) });
+      } finally {
+        set((state) => ({
+          pendingCancellationIds: state.pendingCancellationIds.filter(
+            (id) => id !== taskId,
+          ),
+        }));
+      }
+    },
+    async restartTask(taskId) {
+      const task = get().tasks.find((candidate) => candidate.id === taskId);
+      const sequence = ++commandSequence;
+      set({
+        activeOperationKind: toWorkbenchKind(task?.input_snapshot?.kind),
+        notice: null,
+      });
+      await startOperation(
+        api.restartTask(taskId),
+        set,
+        () => sequence === commandSequence,
+      );
+    },
+    async checkProfile() {
+      await runCommand(api.checkProfile(), set);
+    },
+    async startManualVerification(targetUrl) {
+      await runCommand(api.startManualVerification(targetUrl), set);
+    },
+    viewTaskResult(taskId) {
+      const operation = Object.values(get().operations).find(
+        (candidate) =>
+          candidate.task_id === taskId && candidate.status === "completed",
+      );
+      if (operation) {
+        set({
+          activeOperationId: operation.id,
+          activeOperationKind: toWorkbenchKind(operation.kind),
+          notice: null,
+        });
       }
     },
   });
@@ -200,13 +252,38 @@ async function startOperation(
       return;
     }
     if (writeGuard()) {
-      set({ activeOperationId: response.operation_id ?? null, notice: null });
+      set({
+        activeOperationId: response.operation_id ?? null,
+        notice: null,
+      });
     }
   } catch (error) {
     if (writeGuard()) {
       set({ notice: noticeFor(error) });
     }
   }
+}
+
+async function runCommand(
+  command: Promise<{ ok: boolean; error?: BridgeErrorDto }>,
+  set: StoreApi<DesktopState>["setState"],
+): Promise<void> {
+  try {
+    const response = await command;
+    if (isBridgeError(response)) {
+      set({ notice: response.error });
+      return;
+    }
+    set({ notice: null });
+  } catch (error) {
+    set({ notice: noticeFor(error) });
+  }
+}
+
+function toWorkbenchKind(kind?: string): WorkbenchOperationKind | null {
+  return kind === "search" || kind === "catalog" || kind === "download"
+    ? kind
+    : null;
 }
 
 export const useDesktopStore = create<DesktopState>(createDesktopState(desktopApi));

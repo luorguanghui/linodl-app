@@ -3,8 +3,13 @@ from __future__ import annotations
 import threading
 from dataclasses import dataclass
 
-from linodl.desktop.controller import DesktopController
-from linodl.gui.tasks import TaskStore
+from linodl.desktop.controller import (
+    CatalogReloadRequired,
+    DesktopController,
+    TaskInputNotFound,
+    UnsupportedTaskInput,
+)
+from linodl.gui.tasks import TaskInputSnapshot, TaskStore
 
 
 class FinishedWorker:
@@ -329,3 +334,135 @@ def test_cancel_marks_matching_operation_cancelled():
 
     assert cancelled == ["task-cancel"]
     assert operation["status"] == "cancelled"
+
+
+def test_restart_dispatches_search_catalog_and_warmup_snapshots():
+    task_store = TaskStore()
+    search_task = task_store.create(
+        "search",
+        TaskInputSnapshot(kind="search", query="作品 A"),
+    )
+    catalog_task = task_store.create(
+        "catalog",
+        TaskInputSnapshot(kind="catalog", url="https://example.test/catalog"),
+    )
+    warmup_task = task_store.create("warmup", TaskInputSnapshot(kind="warmup"))
+    captured = []
+
+    def factory(kind):
+        def create(payload, message_queue, owner):
+            captured.append((kind, payload))
+            return EventWorker(message_queue, owner, task_id=f"task-{kind}")
+
+        return create
+
+    controller = DesktopController(
+        task_store=task_store,
+        worker_factories={
+            kind: factory(kind) for kind in ("search", "catalog", "warmup")
+        },
+    )
+
+    controller.restart(search_task.id)
+    controller.restart(catalog_task.id)
+    controller.restart(warmup_task.id)
+
+    assert captured == [
+        ("search", {"query": "作品 A"}),
+        ("catalog", {"url": "https://example.test/catalog"}),
+        ("warmup", {}),
+    ]
+
+
+def test_restart_download_uses_only_snapshot_and_cached_catalog_data():
+    task_store = TaskStore()
+    download_task = task_store.create(
+        "download",
+        TaskInputSnapshot(
+            kind="download",
+            url="https://example.test/catalog",
+            selected_volumes=("第二卷", "第一卷"),
+            output_dir="snapshot-output",
+        ),
+    )
+    captured = {}
+    volumes = [CatalogVolume(name="第一卷")]
+    novel = CatalogNovel(title="作品 A")
+
+    def catalog_factory(payload, message_queue, owner):
+        return EventWorker(
+            message_queue,
+            owner,
+            events=(("result", (volumes, novel)), ("done", None)),
+            task_id="task-catalog",
+        )
+
+    def download_factory(payload, message_queue, owner):
+        captured.update(payload)
+        return EventWorker(message_queue, owner, task_id="task-download")
+
+    controller = DesktopController(
+        task_store=task_store,
+        worker_factories={
+            "catalog": catalog_factory,
+            "download": download_factory,
+        },
+    )
+    controller.start("catalog", url="https://example.test/catalog")
+    controller.drain_events()
+
+    controller.restart(download_task.id)
+
+    assert captured == {
+        "selected_volumes": ["第二卷", "第一卷"],
+        "output_dir": "snapshot-output",
+        "volumes": volumes,
+        "novel_info": novel,
+    }
+
+
+def test_restart_download_requires_cached_catalog_data():
+    task_store = TaskStore()
+    task = task_store.create(
+        "download",
+        TaskInputSnapshot(
+            kind="download",
+            url="https://example.test/catalog",
+            selected_volumes=("第一卷",),
+        ),
+    )
+    controller = DesktopController(
+        task_store=task_store,
+        worker_factories={"download": lambda payload, q, owner: None},
+    )
+
+    try:
+        controller.restart(task.id)
+    except CatalogReloadRequired as exc:
+        assert str(exc) == "https://example.test/catalog"
+    else:
+        raise AssertionError("download restart must require cached catalog data")
+
+
+def test_restart_rejects_missing_and_unsupported_snapshots():
+    task_store = TaskStore()
+    missing = task_store.create("missing")
+    unsupported = task_store.create(
+        "unsupported",
+        TaskInputSnapshot(kind="export", output_dir="out"),
+    )
+    controller = DesktopController(task_store=task_store)
+
+    try:
+        controller.restart(missing.id)
+    except TaskInputNotFound:
+        pass
+    else:
+        raise AssertionError("missing snapshot must be rejected")
+
+    try:
+        controller.restart(unsupported.id)
+    except UnsupportedTaskInput as exc:
+        assert str(exc) == "export"
+    else:
+        raise AssertionError("unsupported snapshot must be rejected")

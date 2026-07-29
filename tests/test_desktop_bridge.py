@@ -2,12 +2,18 @@ from __future__ import annotations
 
 from linodl.config.manager import ConfigManager
 from linodl.desktop.bridge import DesktopBridge
+from linodl.desktop.controller import (
+    CatalogReloadRequired,
+    TaskInputNotFound,
+    UnsupportedTaskInput,
+)
 
 
 class FakeController:
     def __init__(self):
         self.last = None
         self.cancelled_task = None
+        self.restarted_task = None
         self.drained = 0
 
     def start(self, kind, **payload):
@@ -29,12 +35,104 @@ class FakeController:
         self.cancelled_task = task_id
         return True
 
+    def restart(self, task_id):
+        self.restarted_task = task_id
+        return "op-restarted"
+
+
+class FakeProfileService:
+    def __init__(self):
+        self.checked = 0
+        self.manual_target = None
+
+    def snapshot(self):
+        return {"status": "unknown", "detail": ""}
+
+    def check_profile(self):
+        self.checked += 1
+        return True
+
+    def start_manual_verification(self, target_url):
+        self.manual_target = target_url
+        return True
+
 
 def make_bridge(tmp_path, controller=None):
     return DesktopBridge(
         ConfigManager(str(tmp_path / "settings.ini")),
         controller=controller or FakeController(),
     )
+
+
+def test_bootstrap_never_reports_unknown_profile_as_healthy(tmp_path):
+    bridge = make_bridge(tmp_path)
+
+    payload = bridge.bootstrap()
+
+    assert payload["profile"]["status"] in {
+        "unknown",
+        "checking",
+        "healthy",
+        "needs_verification",
+        "busy",
+        "error",
+    }
+    assert payload["profile"]["status"] != "healthy"
+
+
+def test_bridge_starts_injected_profile_operations_without_real_browser(tmp_path):
+    profile_service = FakeProfileService()
+    bridge = DesktopBridge(
+        ConfigManager(str(tmp_path / "settings.ini")),
+        controller=FakeController(),
+        profile_service=profile_service,
+    )
+
+    assert bridge.check_profile() == {"ok": True}
+    assert bridge.start_manual_verification(" https://example.test/challenge ") == {
+        "ok": True
+    }
+    assert profile_service.checked == 1
+    assert profile_service.manual_target == "https://example.test/challenge"
+
+
+def test_bridge_rejects_blank_manual_verification_target(tmp_path):
+    bridge = make_bridge(tmp_path)
+
+    response = bridge.start_manual_verification(" ")
+
+    assert response["error"]["code"] == "INVALID_VERIFICATION_TARGET"
+
+
+def test_bridge_restarts_task_from_controller_snapshot(tmp_path):
+    controller = FakeController()
+    bridge = make_bridge(tmp_path, controller)
+
+    response = bridge.restart_task(" task-1 ")
+
+    assert response == {"ok": True, "operation_id": "op-restarted"}
+    assert controller.restarted_task == "task-1"
+
+
+def test_bridge_returns_actionable_restart_errors(tmp_path):
+    class FailingRestartController(FakeController):
+        error = TaskInputNotFound("task-1")
+
+        def restart(self, task_id):
+            raise self.error
+
+    controller = FailingRestartController()
+    bridge = make_bridge(tmp_path, controller)
+
+    missing = bridge.restart_task("task-1")
+    controller.error = UnsupportedTaskInput("export")
+    unsupported = bridge.restart_task("task-1")
+    controller.error = CatalogReloadRequired("https://example.test/catalog")
+    reload_required = bridge.restart_task("task-1")
+
+    assert missing["error"]["code"] == "TASK_INPUT_NOT_FOUND"
+    assert unsupported["error"]["code"] == "UNSUPPORTED_TASK_INPUT"
+    assert reload_required["error"]["code"] == "CATALOG_RELOAD_REQUIRED"
 
 
 def test_bridge_rejects_blank_search(tmp_path):
@@ -114,6 +212,7 @@ def test_bridge_poll_drains_events_before_requesting_snapshot(tmp_path):
         "tasks": [],
         "operation_version": 8,
         "operations": {},
+        "profile": {"status": "unknown", "detail": ""},
     }
 
 

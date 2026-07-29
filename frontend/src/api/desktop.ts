@@ -2,6 +2,7 @@ import type {
   BootstrapDto,
   BootstrapResponse,
   BridgeCancelResult,
+  BridgeCommandResult,
   BridgeOperationResult,
   PollResponse,
 } from "./types";
@@ -22,6 +23,7 @@ const developmentBootstrap: BootstrapDto = {
   tasks: [],
   operation_version: 0,
   operations: {},
+  profile: { status: "unknown", detail: "" },
   config: {},
 };
 
@@ -56,6 +58,9 @@ export interface DesktopApi {
     selectedVolumes: string[],
   ): Promise<BridgeOperationResult>;
   cancel(taskId: string): Promise<BridgeCancelResult>;
+  restartTask(taskId: string): Promise<BridgeOperationResult>;
+  checkProfile(): Promise<BridgeCommandResult>;
+  startManualVerification(targetUrl: string): Promise<BridgeCommandResult>;
 }
 
 export const desktopApi: DesktopApi = {
@@ -83,5 +88,17 @@ export const desktopApi: DesktopApi = {
   },
   cancel(taskId) {
     return invoke<BridgeCancelResult>("cancel", taskId);
+  },
+  restartTask(taskId) {
+    return invoke<BridgeOperationResult>("restart_task", taskId);
+  },
+  checkProfile() {
+    return invoke<BridgeCommandResult>("check_profile");
+  },
+  startManualVerification(targetUrl) {
+    return invoke<BridgeCommandResult>(
+      "start_manual_verification",
+      targetUrl,
+    );
   },
 };

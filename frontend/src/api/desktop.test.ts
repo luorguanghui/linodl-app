@@ -17,6 +17,7 @@ describe("desktop API", () => {
       tasks: [],
       operation_version: 0,
       operations: {},
+      profile: { status: "unknown", detail: "" },
       config: {},
     });
   });

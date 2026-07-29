@@ -247,8 +247,10 @@ class CatalogWorker(BackgroundWorker):
 class DownloadWorker(BackgroundWorker):
     def __init__(
         self, volumes, selected_volume_names, novel_info,
-        config: ConfigManager, message_queue: queue.Queue, owner=None
+        config: ConfigManager, message_queue: queue.Queue, owner=None,
+        *, output_dir: str | None = None,
     ):
+        self.output_dir = output_dir or config.output_dir
         super().__init__(
             message_queue,
             owner=owner,
@@ -257,7 +259,7 @@ class DownloadWorker(BackgroundWorker):
                 kind="download",
                 url=getattr(novel_info, "catalog_url", "") or "",
                 selected_volumes=tuple(sorted(selected_volume_names)),
-                output_dir=config.output_dir,
+                output_dir=self.output_dir,
             ),
         )
         self.volumes = volumes
@@ -296,7 +298,7 @@ class DownloadWorker(BackgroundWorker):
                 return
 
             downloader = Downloader(
-                output_dir=self.config.output_dir,
+                output_dir=self.output_dir,
                 delay_range=self.config.delay_range,
                 progress_callback=self.report_progress,
                 cancel_callback=self.is_cancelled,

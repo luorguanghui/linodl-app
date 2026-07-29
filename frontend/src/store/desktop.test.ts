@@ -42,7 +42,8 @@ describe("desktop store", () => {
       activeOperationId: null,
       activeOperationKind: null,
       selectedVolumes: [],
-      profile: "unknown",
+      pendingCancellationIds: [],
+      profile: { status: "unknown", detail: "" },
       settings: {},
       notice: null,
     });
@@ -110,6 +111,23 @@ describe("desktop store", () => {
       message: "请输入作品名。",
       action: "输入后重试。",
     });
+  });
+
+  it("deduplicates cancellation while the bridge request is pending", async () => {
+    const request = deferred<{ ok: true }>();
+    const cancel = vi.fn().mockReturnValue(request.promise);
+    const store = createDesktopStore({ cancel } as never);
+
+    const first = store.getState().cancelTask("task-1");
+    const second = store.getState().cancelTask("task-1");
+
+    expect(store.getState().pendingCancellationIds).toEqual(["task-1"]);
+    expect(cancel).toHaveBeenCalledTimes(1);
+
+    request.resolve({ ok: true });
+    await Promise.all([first, second]);
+
+    expect(store.getState().pendingCancellationIds).toEqual([]);
   });
 
   it("keeps selected volume names in the desktop store", () => {

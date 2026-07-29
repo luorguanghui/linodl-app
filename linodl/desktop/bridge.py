@@ -5,7 +5,14 @@ from __future__ import annotations
 from typing import Callable
 
 from ..config.manager import ConfigManager
-from .controller import CatalogOperationNotFound, DesktopController
+from .controller import (
+    CatalogOperationNotFound,
+    CatalogReloadRequired,
+    DesktopController,
+    TaskInputNotFound,
+    UnsupportedTaskInput,
+)
+from .profile import DesktopProfileService
 from .serialization import to_primitive
 
 
@@ -16,10 +23,12 @@ class DesktopBridge:
         debug: bool = False,
         *,
         controller: DesktopController | None = None,
+        profile_service: DesktopProfileService | None = None,
     ):
         self._config = config
         self.debug = debug
         self._controller = controller or DesktopController(config=config)
+        self._profile_service = profile_service or DesktopProfileService(config)
         self._window = None
 
     def attach_window(self, window) -> None:
@@ -31,6 +40,7 @@ class DesktopBridge:
             snapshot = self._controller.poll(-1, -1)
             return {
                 **snapshot,
+                "profile": self._profile_service.snapshot(),
                 "config": to_primitive(
                     {
                         "output_dir": self._config.output_dir,
@@ -53,7 +63,10 @@ class DesktopBridge:
     def poll(self, task_version: int, operation_version: int) -> dict:
         try:
             self._drain_events()
-            return self._controller.poll(int(task_version), int(operation_version))
+            return {
+                **self._controller.poll(int(task_version), int(operation_version)),
+                "profile": self._profile_service.snapshot(),
+            }
         except Exception:
             return self._error(
                 "POLL_FAILED",
@@ -138,6 +151,83 @@ class DesktopBridge:
                 "请稍后重试。",
             )
         return {"ok": True}
+
+    def check_profile(self) -> dict:
+        try:
+            started = self._profile_service.check_profile()
+        except Exception:
+            return self._error(
+                "PROFILE_CHECK_FAILED",
+                "无法检查浏览档案。",
+                "请稍后重试。",
+            )
+        if not started:
+            return self._error(
+                "PROFILE_BUSY",
+                "浏览档案操作正在进行。",
+                "请等待当前操作完成后重试。",
+            )
+        return {"ok": True}
+
+    def start_manual_verification(self, target_url: str) -> dict:
+        normalized = str(target_url or "").strip()
+        if not normalized:
+            return self._error(
+                "INVALID_VERIFICATION_TARGET",
+                "验证页面地址无效。",
+                "请输入需要人工验证的页面地址。",
+            )
+        try:
+            started = self._profile_service.start_manual_verification(normalized)
+        except Exception:
+            return self._error(
+                "MANUAL_VERIFICATION_FAILED",
+                "无法打开人工验证。",
+                "请稍后重试。",
+            )
+        if not started:
+            return self._error(
+                "PROFILE_BUSY",
+                "浏览档案操作正在进行。",
+                "请等待当前操作完成后重试。",
+            )
+        return {"ok": True}
+
+    def restart_task(self, task_id: str) -> dict:
+        normalized = str(task_id or "").strip()
+        if not normalized:
+            return self._error(
+                "INVALID_TASK",
+                "任务标识无效。",
+                "请刷新任务列表后重试。",
+            )
+        try:
+            operation_id = self._controller.restart(normalized)
+        except CatalogReloadRequired:
+            return self._error(
+                "CATALOG_RELOAD_REQUIRED",
+                "目录缓存已失效，无法直接恢复下载。",
+                "请重新读取目录并选择分卷。",
+            )
+        except TaskInputNotFound:
+            return self._error(
+                "TASK_INPUT_NOT_FOUND",
+                "该任务没有完整的恢复输入。",
+                "请重新输入作品名或目录地址。",
+            )
+        except UnsupportedTaskInput:
+            return self._error(
+                "UNSUPPORTED_TASK_INPUT",
+                "该任务类型暂不支持恢复。",
+                "请从对应页面重新开始。",
+            )
+        except Exception:
+            return self._error(
+                "RESTART_FAILED",
+                "无法重新开始任务。",
+                "请稍后重试。",
+            )
+        return {"ok": True, "operation_id": operation_id}
 
     def _start(self, kind: str, **payload) -> dict:
         try:

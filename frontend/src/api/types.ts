@@ -50,6 +50,7 @@ export interface PollDto {
   tasks: TaskDto[] | null;
   operation_version: number;
   operations: OperationMapDto | null;
+  profile?: ProfileHealthDto;
 }
 
 export interface DesktopSettingsDto {
@@ -60,6 +61,19 @@ export interface DesktopSettingsDto {
   proxy?: string;
   geoip?: boolean;
   theme?: string;
+}
+
+export type ProfileStatus =
+  | "unknown"
+  | "checking"
+  | "healthy"
+  | "needs_verification"
+  | "busy"
+  | "error";
+
+export interface ProfileHealthDto {
+  status: ProfileStatus;
+  detail: string;
 }
 
 export interface BootstrapDto extends PollDto {
@@ -86,7 +100,12 @@ export interface BridgeCancelResponse {
   ok: true;
 }
 
+export interface BridgeCommandResponse {
+  ok: true;
+}
+
 export type PollResponse = PollDto | BridgeErrorResponse;
 export type BootstrapResponse = BootstrapDto | BridgeErrorResponse;
 export type BridgeOperationResult = BridgeOperationResponse | BridgeErrorResponse;
 export type BridgeCancelResult = BridgeCancelResponse | BridgeErrorResponse;
+export type BridgeCommandResult = BridgeCommandResponse | BridgeErrorResponse;

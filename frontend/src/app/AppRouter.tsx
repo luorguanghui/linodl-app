@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 
 import { EmptyState } from "../components/EmptyState";
+import { ProfilePage } from "../features/profile/ProfilePage";
 import { WorkbenchPage } from "../features/workbench/WorkbenchPage";
 
 export type PageKey =
@@ -117,6 +118,8 @@ export function AppRouter({ page }: AppRouterProps) {
 
       {page === "workbench" ? (
         <WorkbenchPage />
+      ) : page === "settings" ? (
+        <ProfilePage />
       ) : (
         <EmptyState
           icon={<PageIcon size={22} strokeWidth={1.8} />}

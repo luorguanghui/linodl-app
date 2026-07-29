@@ -300,6 +300,28 @@ def test_download_worker_snapshot_keeps_catalog_url():
     assert worker.task.input_snapshot.url == novel.catalog_url
 
 
+def test_download_worker_restart_keeps_snapshot_output_directory():
+    from linodl.gui.workers import DownloadWorker
+
+    config = types.SimpleNamespace(output_dir="current-settings")
+    novel = types.SimpleNamespace(
+        title="测试作品",
+        catalog_url="https://www.linovelib.com/novel/1/catalog",
+    )
+
+    worker = DownloadWorker(
+        [],
+        {"第一卷"},
+        novel,
+        config,
+        queue.Queue(),
+        output_dir="snapshot-output",
+    )
+
+    assert worker.output_dir == "snapshot-output"
+    assert worker.task.input_snapshot.output_dir == "snapshot-output"
+
+
 def test_task_actions_offer_cancel_or_restore():
     from linodl.gui.tasks import TaskStatus, TaskStore
     from linodl.gui.widgets.task_center import task_actions
