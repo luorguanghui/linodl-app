@@ -152,14 +152,14 @@ class DesktopController:
         return prepared
 
     def drain_events(self) -> None:
-        while True:
-            try:
-                event_type, data, owner = self._queue.get_nowait()
-            except queue.Empty:
-                return
-            if not isinstance(owner, OperationOwner):
-                continue
-            with self._lock:
+        with self._lock:
+            while True:
+                try:
+                    event_type, data, owner = self._queue.get_nowait()
+                except queue.Empty:
+                    return
+                if not isinstance(owner, OperationOwner):
+                    continue
                 operation = self._operations.get(owner.operation_id)
                 if operation is None:
                     continue

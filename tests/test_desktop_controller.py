@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass
 
 from linodl.desktop.controller import DesktopController
@@ -94,6 +95,63 @@ def test_controller_redacts_worker_errors_and_done_does_not_overwrite_failure():
     assert "secret" not in operation["error"]
     assert "abcd" not in operation["error"]
     assert "socks5://***:***@127.0.0.1" in operation["error"]
+
+
+def test_concurrent_drainers_preserve_error_before_done_queue_order(monkeypatch):
+    captured = {}
+
+    def factory(payload, message_queue, owner):
+        captured["queue"] = message_queue
+        captured["owner"] = owner
+        return EventWorker(message_queue, owner)
+
+    controller = DesktopController(
+        task_store=TaskStore(),
+        worker_factories={"search": factory},
+    )
+    operation_id = controller.start("search", query="作品 A")
+    message_queue = captured["queue"]
+    message_queue.put(("error", "network failed", captured["owner"]))
+    message_queue.put(("done", None, captured["owner"]))
+
+    real_get_nowait = message_queue.get_nowait
+    error_dequeued = threading.Event()
+    release_error = threading.Event()
+    second_finished = threading.Event()
+    second_observed_status = []
+
+    def controlled_get_nowait():
+        event = real_get_nowait()
+        if (
+            threading.current_thread().name == "error-drainer"
+            and event[0] == "error"
+        ):
+            error_dequeued.set()
+            assert release_error.wait(2)
+        return event
+
+    monkeypatch.setattr(message_queue, "get_nowait", controlled_get_nowait)
+
+    first = threading.Thread(target=controller.drain_events, name="error-drainer")
+
+    def drain_and_observe():
+        controller.drain_events()
+        operation = controller.operations(-1)["operations"][operation_id]
+        second_observed_status.append(operation["status"])
+        second_finished.set()
+
+    second = threading.Thread(target=drain_and_observe, name="done-drainer")
+    first.start()
+    assert error_dequeued.wait(1)
+    second.start()
+    second_finished.wait(1)
+    release_error.set()
+    first.join(2)
+    second.join(2)
+
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert second_observed_status == ["failed"]
 
 
 @dataclass
