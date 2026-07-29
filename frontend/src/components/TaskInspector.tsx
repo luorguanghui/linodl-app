@@ -38,25 +38,45 @@ function canCancel(task: TaskDto): boolean {
   return ["queued", "waiting_for_profile", "running"].includes(task.status);
 }
 
-function verificationTarget(task: TaskDto): string {
-  return task.input_snapshot?.url || "https://www.linovelib.com";
-}
+const TERMINAL_STATUSES = new Set<TaskStatus>([
+  "cancelled",
+  "failed",
+  "completed",
+]);
+const RECENT_TERMINAL_TASK_LIMIT = 8;
 
 interface TaskInspectorProps {
   tasks?: TaskDto[];
+  onViewResult?: () => void;
 }
 
-export function TaskInspector({ tasks: tasksOverride }: TaskInspectorProps = {}) {
+export function TaskInspector({
+  tasks: tasksOverride,
+  onViewResult,
+}: TaskInspectorProps = {}) {
   useDesktopStore((state) => state.taskVersion);
   const tasks = tasksOverride ?? useDesktopStore.getState().tasks;
+  const recentTerminalIds = new Set(
+    tasks
+      .filter((task) => TERMINAL_STATUSES.has(task.status))
+      .slice(-RECENT_TERMINAL_TASK_LIMIT)
+      .map((task) => task.id),
+  );
+  const visibleTasks = tasks.filter(
+    (task) =>
+      !TERMINAL_STATUSES.has(task.status) || recentTerminalIds.has(task.id),
+  );
   const pendingCancellationIds = useDesktopStore(
     (state) => state.pendingCancellationIds,
+  );
+  const pendingRestartIds = useDesktopStore(
+    (state) => state.pendingRestartIds,
   );
   const notice = useDesktopStore((state) => state.notice);
   const cancelTask = useDesktopStore((state) => state.cancelTask);
   const restartTask = useDesktopStore((state) => state.restartTask);
-  const startManualVerification = useDesktopStore(
-    (state) => state.startManualVerification,
+  const focusTaskVerification = useDesktopStore(
+    (state) => state.focusTaskVerification,
   );
   const viewTaskResult = useDesktopStore((state) => state.viewTaskResult);
 
@@ -70,8 +90,11 @@ export function TaskInspector({ tasks: tasksOverride }: TaskInspectorProps = {})
           </h2>
           <p className="task-inspector-caption">跨页面保留的下载与校验进度</p>
         </div>
-        <span className="task-count" aria-label={`${tasks.length} 个任务`}>
-          {tasks.length}
+        <span
+          className="task-count"
+          aria-label={`${visibleTasks.length} 个任务`}
+        >
+          {visibleTasks.length}
         </span>
       </header>
 
@@ -82,7 +105,7 @@ export function TaskInspector({ tasks: tasksOverride }: TaskInspectorProps = {})
         </div>
       ) : null}
 
-      {tasks.length === 0 ? (
+      {visibleTasks.length === 0 ? (
         <EmptyState
           compact
           icon={<Inbox size={21} strokeWidth={1.8} />}
@@ -92,10 +115,11 @@ export function TaskInspector({ tasks: tasksOverride }: TaskInspectorProps = {})
         />
       ) : (
         <ol className="task-list">
-          {tasks.map((task) => {
+          {visibleTasks.map((task) => {
             const percent = progressPercent(task.progress);
             const cancellationPending =
               pendingCancellationIds.includes(task.id);
+            const restartPending = pendingRestartIds.includes(task.id);
 
             return (
               <li className="task-card" key={task.id}>
@@ -140,9 +164,7 @@ export function TaskInspector({ tasks: tasksOverride }: TaskInspectorProps = {})
                     <button
                       className="task-action-button"
                       type="button"
-                      onClick={() =>
-                        void startManualVerification(verificationTarget(task))
-                      }
+                      onClick={() => void focusTaskVerification(task.id)}
                     >
                       打开人工验证
                     </button>
@@ -152,9 +174,10 @@ export function TaskInspector({ tasks: tasksOverride }: TaskInspectorProps = {})
                       className="task-action-button"
                       type="button"
                       aria-label={`重新开始${task.title}`}
+                      disabled={restartPending}
                       onClick={() => void restartTask(task.id)}
                     >
-                      重新开始
+                      {restartPending ? "正在重新开始" : "重新开始"}
                     </button>
                   ) : null}
                   {task.status === "completed" ? (
@@ -162,7 +185,11 @@ export function TaskInspector({ tasks: tasksOverride }: TaskInspectorProps = {})
                       className="task-action-button"
                       type="button"
                       aria-label={`查看${task.title}结果`}
-                      onClick={() => viewTaskResult(task.id)}
+                      onClick={() => {
+                        if (viewTaskResult(task.id)) {
+                          onViewResult?.();
+                        }
+                      }}
                     >
                       查看结果
                     </button>

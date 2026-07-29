@@ -40,13 +40,22 @@ afterEach(() => {
     tasks: [],
     taskVersion: -1,
     pendingCancellationIds: [],
+    pendingRestartIds: [],
     notice: null,
   });
   vi.restoreAllMocks();
 });
 
 describe("TaskInspector", () => {
-  it("shows a verification action for a waiting task", () => {
+  it("focuses the original worker verification for a waiting task", async () => {
+    const focusTaskVerification = vi.fn().mockResolvedValue({ ok: true });
+    const startManualVerification = vi.fn();
+    window.pywebview = {
+      api: {
+        focus_task_verification: focusTaskVerification,
+        start_manual_verification: startManualVerification,
+      },
+    };
     render(
       <TaskInspector
         tasks={[
@@ -61,6 +70,12 @@ describe("TaskInspector", () => {
     expect(
       screen.getByRole("button", { name: "打开人工验证" }),
     ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "打开人工验证" }));
+    await waitFor(() =>
+      expect(focusTaskVerification).toHaveBeenCalledWith("task-1"),
+    );
+    expect(startManualVerification).not.toHaveBeenCalled();
   });
 
   it("disables cancellation immediately and prevents duplicate requests", async () => {
@@ -109,5 +124,24 @@ describe("TaskInspector", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "重新开始读取目录" }));
     await waitFor(() => expect(restartTask).toHaveBeenCalledWith("failed"));
+  });
+
+  it("retains every active task while limiting terminal history", () => {
+    const tasks = [
+      task({ id: "active", title: "活动任务", status: "running" }),
+      ...Array.from({ length: 12 }, (_, index) =>
+        task({
+          id: `done-${index}`,
+          title: `终态任务 ${index}`,
+          status: "completed",
+        }),
+      ),
+    ];
+
+    render(<TaskInspector tasks={tasks} />);
+
+    expect(screen.getByText("活动任务")).toBeInTheDocument();
+    expect(screen.queryByText("终态任务 0")).toBeNull();
+    expect(screen.getAllByRole("listitem")).toHaveLength(9);
   });
 });

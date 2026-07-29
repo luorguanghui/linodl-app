@@ -1,12 +1,21 @@
 from __future__ import annotations
 
+import threading
+import types
+
+import pytest
+
 from linodl.config.manager import ConfigManager
 from linodl.desktop.bridge import DesktopBridge
 from linodl.desktop.controller import (
     CatalogReloadRequired,
+    DesktopController,
     TaskInputNotFound,
     UnsupportedTaskInput,
 )
+from linodl.gui.tasks import TaskInputSnapshot, TaskStatus, TaskStore
+from linodl.gui.verification import VerificationResult
+from linodl.gui.workers import BackgroundWorker
 
 
 class FakeController:
@@ -14,6 +23,7 @@ class FakeController:
         self.last = None
         self.cancelled_task = None
         self.restarted_task = None
+        self.focused_task = None
         self.drained = 0
 
     def start(self, kind, **payload):
@@ -38,6 +48,10 @@ class FakeController:
     def restart(self, task_id):
         self.restarted_task = task_id
         return "op-restarted"
+
+    def focus_verification(self, task_id):
+        self.focused_task = task_id
+        return True
 
 
 class FakeProfileService:
@@ -89,19 +103,134 @@ def test_bridge_starts_injected_profile_operations_without_real_browser(tmp_path
     )
 
     assert bridge.check_profile() == {"ok": True}
-    assert bridge.start_manual_verification(" https://example.test/challenge ") == {
+    assert bridge.start_manual_verification(
+        " https://www.linovelib.com/novel/1 "
+    ) == {
         "ok": True
     }
     assert profile_service.checked == 1
-    assert profile_service.manual_target == "https://example.test/challenge"
+    assert profile_service.manual_target == "https://www.linovelib.com/novel/1"
 
 
-def test_bridge_rejects_blank_manual_verification_target(tmp_path):
+@pytest.mark.parametrize(
+    "target_url",
+    [
+        " ",
+        "ftp://www.linovelib.com/novel/1",
+        "https://example.com/novel/1",
+        "javascript:alert(1)",
+    ],
+)
+def test_bridge_rejects_unsafe_manual_verification_target(tmp_path, target_url):
     bridge = make_bridge(tmp_path)
 
-    response = bridge.start_manual_verification(" ")
+    response = bridge.start_manual_verification(target_url)
 
     assert response["error"]["code"] == "INVALID_VERIFICATION_TARGET"
+
+
+def test_bridge_focuses_original_waiting_worker_and_resumes_same_task(
+    monkeypatch,
+    tmp_path,
+):
+    from linodl.gui import workers as workers_module
+
+    verification_entered = threading.Event()
+    captured = {}
+
+    class FocusDrivenVerificationService:
+        def verify(
+            self,
+            target_url,
+            config,
+            cancel_event,
+            progress,
+            *,
+            focus_event,
+        ):
+            captured["focus_event"] = focus_event
+            verification_entered.set()
+            assert focus_event.wait(1)
+            return VerificationResult(
+                passed=True,
+                message="验证已通过，正在恢复原任务。",
+            )
+
+    monkeypatch.setattr(
+        workers_module,
+        "verification_service",
+        FocusDrivenVerificationService(),
+    )
+
+    task_store = TaskStore()
+    holder = {}
+    resumed_statuses = []
+
+    class VerificationWorker(BackgroundWorker):
+        def __init__(self, message_queue, owner):
+            super().__init__(
+                message_queue,
+                owner,
+                task_title="读取目录",
+                input_snapshot=TaskInputSnapshot(
+                    kind="catalog",
+                    url="https://www.linovelib.com/novel/1",
+                ),
+                task_store_instance=task_store,
+            )
+            self.config = types.SimpleNamespace()
+
+        def run(self):
+            try:
+                assert self.verify_challenge(
+                    "https://www.linovelib.com/novel/1",
+                )
+                resumed_statuses.append(self.task.status)
+                self.report_result([])
+            finally:
+                self.report_done()
+
+    def worker_factory(payload, message_queue, owner):
+        worker = VerificationWorker(message_queue, owner)
+        holder["worker"] = worker
+        return worker
+
+    class ProfileServiceThatMustNotStartManualVerification(FakeProfileService):
+        def __init__(self):
+            super().__init__()
+            self.manual_calls = 0
+
+        def start_manual_verification(self, target_url):
+            self.manual_calls += 1
+            raise AssertionError("waiting tasks must reuse their original worker")
+
+    profile_service = ProfileServiceThatMustNotStartManualVerification()
+    controller = DesktopController(
+        task_store=task_store,
+        worker_factories={"catalog": worker_factory},
+    )
+    bridge = DesktopBridge(
+        ConfigManager(str(tmp_path / "settings.ini")),
+        controller=controller,
+        profile_service=profile_service,
+    )
+
+    operation_id = controller.start(
+        "catalog",
+        url="https://www.linovelib.com/novel/1",
+    )
+    assert verification_entered.wait(1)
+    task_id = controller.operations(-1)["operations"][operation_id]["task_id"]
+    assert task_store.get(task_id).status is TaskStatus.WAITING_FOR_VERIFICATION
+
+    assert bridge.focus_task_verification(task_id) == {"ok": True}
+
+    holder["worker"].join(1)
+    assert not holder["worker"].is_alive()
+    assert captured["focus_event"] is holder["worker"]._verification_focus_event
+    assert resumed_statuses == [TaskStatus.RUNNING]
+    assert task_store.get(task_id).status is TaskStatus.COMPLETED
+    assert profile_service.manual_calls == 0
 
 
 def test_bridge_restarts_task_from_controller_snapshot(tmp_path):

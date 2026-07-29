@@ -59,6 +59,7 @@ export interface DesktopApi {
   ): Promise<BridgeOperationResult>;
   cancel(taskId: string): Promise<BridgeCancelResult>;
   restartTask(taskId: string): Promise<BridgeOperationResult>;
+  focusTaskVerification(taskId: string): Promise<BridgeCommandResult>;
   checkProfile(): Promise<BridgeCommandResult>;
   startManualVerification(targetUrl: string): Promise<BridgeCommandResult>;
 }
@@ -91,6 +92,9 @@ export const desktopApi: DesktopApi = {
   },
   restartTask(taskId) {
     return invoke<BridgeOperationResult>("restart_task", taskId);
+  },
+  focusTaskVerification(taskId) {
+    return invoke<BridgeCommandResult>("focus_task_verification", taskId);
   },
   checkProfile() {
     return invoke<BridgeCommandResult>("check_profile");

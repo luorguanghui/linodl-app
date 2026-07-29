@@ -210,6 +210,95 @@ def test_verification_service_uses_visible_cloak_and_rechecks_target():
     assert result.passed is True
 
 
+def test_verification_service_focuses_existing_window_and_safely_reports_fallback():
+    from linodl.gui.verification import VerificationService
+
+    messages = []
+    focus_event = threading.Event()
+    focus_event.set()
+
+    class FakeSession:
+        def __init__(self):
+            self.contents = [
+                "<html><div class='cf-turnstile'>verify you are human</div></html>",
+                '<html><a href="/novel/1.html">正常内容</a></html>',
+                '<html><a href="/novel/1.html">正常内容</a></html>',
+            ]
+
+        def start(self, prefer_cloak=False):
+            return self
+
+        def goto(self, url, **kwargs):
+            pass
+
+        def content(self):
+            if len(self.contents) > 1:
+                return self.contents.pop(0)
+            return self.contents[0]
+
+        def close(self):
+            pass
+
+    config = types.SimpleNamespace(proxy="", geoip=False, profile_dir="profile")
+    result = VerificationService(
+        session_factory=lambda **kwargs: FakeSession(),
+        poll_interval=0,
+    ).verify(
+        "https://www.linovelib.com/novel/1",
+        config,
+        threading.Event(),
+        messages.append,
+        focus_event=focus_event,
+        timeout_ms=50,
+    )
+
+    assert result.passed is True
+    assert focus_event.is_set() is False
+    assert any("验证窗口已打开" in message for message in messages)
+
+
+def test_verification_service_brings_current_page_to_front_on_focus_request():
+    from linodl.gui.verification import VerificationService
+
+    focus_event = threading.Event()
+    focus_event.set()
+    brought_to_front = threading.Event()
+
+    class FakePage:
+        def bring_to_front(self):
+            brought_to_front.set()
+
+    class FakeSession:
+        page = FakePage()
+
+        def start(self, prefer_cloak=False):
+            return self
+
+        def goto(self, url, **kwargs):
+            pass
+
+        def content(self):
+            return '<html><a href="/novel/1.html">正常内容</a></html>'
+
+        def close(self):
+            pass
+
+    result = VerificationService(
+        session_factory=lambda **kwargs: FakeSession(),
+        poll_interval=0,
+    ).verify(
+        "https://www.linovelib.com/novel/1",
+        types.SimpleNamespace(proxy="", geoip=False, profile_dir="profile"),
+        threading.Event(),
+        lambda message: None,
+        focus_event=focus_event,
+        timeout_ms=50,
+    )
+
+    assert result.passed is True
+    assert brought_to_front.is_set()
+
+
 def test_verification_service_returns_cancelled_before_opening_browser():
     from linodl.gui.verification import VerificationService
 
@@ -238,9 +327,18 @@ def test_worker_returns_to_running_after_visible_verification(monkeypatch):
     from linodl.gui.verification import VerificationResult
 
     class PassingService:
-        def verify(self, target_url, config, cancel_event, progress):
+        def verify(
+            self,
+            target_url,
+            config,
+            cancel_event,
+            progress,
+            *,
+            focus_event,
+        ):
             assert target_url == "https://www.linovelib.com/"
             assert cancel_event.is_set() is False
+            assert focus_event.is_set() is False
             return VerificationResult(
                 passed=True,
                 message="验证已通过，正在恢复原任务。",

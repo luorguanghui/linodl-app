@@ -28,6 +28,7 @@ export interface DesktopState {
   activeOperationKind: WorkbenchOperationKind | null;
   selectedVolumes: string[];
   pendingCancellationIds: string[];
+  pendingRestartIds: string[];
   profile: ProfileState;
   settings: DesktopSettingsDto;
   notice: BridgeErrorDto | null;
@@ -41,9 +42,10 @@ export interface DesktopState {
   toggleVolume(volumeName: string): void;
   cancelTask(taskId: string): Promise<void>;
   restartTask(taskId: string): Promise<void>;
+  focusTaskVerification(taskId: string): Promise<void>;
   checkProfile(): Promise<void>;
   startManualVerification(targetUrl: string): Promise<void>;
-  viewTaskResult(taskId: string): void;
+  viewTaskResult(taskId: string): boolean;
 }
 
 const unavailableNotice: BridgeErrorDto = {
@@ -84,6 +86,7 @@ function createDesktopState(api: DesktopApi): StateCreator<DesktopState> {
     activeOperationKind: null,
     selectedVolumes: [],
     pendingCancellationIds: [],
+    pendingRestartIds: [],
     profile: { status: "unknown", detail: "" },
     settings: {},
     notice: null,
@@ -200,17 +203,34 @@ function createDesktopState(api: DesktopApi): StateCreator<DesktopState> {
       }
     },
     async restartTask(taskId) {
-      const task = get().tasks.find((candidate) => candidate.id === taskId);
-      const sequence = ++commandSequence;
-      set({
-        activeOperationKind: toWorkbenchKind(task?.input_snapshot?.kind),
-        notice: null,
-      });
-      await startOperation(
-        api.restartTask(taskId),
-        set,
-        () => sequence === commandSequence,
-      );
+      if (get().pendingRestartIds.includes(taskId)) {
+        return;
+      }
+      set((state) => ({
+        pendingRestartIds: [...state.pendingRestartIds, taskId],
+      }));
+      try {
+        const task = get().tasks.find((candidate) => candidate.id === taskId);
+        const sequence = ++commandSequence;
+        set({
+          activeOperationKind: toWorkbenchKind(task?.input_snapshot?.kind),
+          notice: null,
+        });
+        await startOperation(
+          api.restartTask(taskId),
+          set,
+          () => sequence === commandSequence,
+        );
+      } finally {
+        set((state) => ({
+          pendingRestartIds: state.pendingRestartIds.filter(
+            (id) => id !== taskId,
+          ),
+        }));
+      }
+    },
+    async focusTaskVerification(taskId) {
+      await runCommand(api.focusTaskVerification(taskId), set);
     },
     async checkProfile() {
       await runCommand(api.checkProfile(), set);
@@ -229,7 +249,9 @@ function createDesktopState(api: DesktopApi): StateCreator<DesktopState> {
           activeOperationKind: toWorkbenchKind(operation.kind),
           notice: null,
         });
+        return true;
       }
+      return false;
     },
   });
 }

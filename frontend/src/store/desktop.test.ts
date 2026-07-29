@@ -43,6 +43,7 @@ describe("desktop store", () => {
       activeOperationKind: null,
       selectedVolumes: [],
       pendingCancellationIds: [],
+      pendingRestartIds: [],
       profile: { status: "unknown", detail: "" },
       settings: {},
       notice: null,
@@ -128,6 +129,31 @@ describe("desktop store", () => {
     await Promise.all([first, second]);
 
     expect(store.getState().pendingCancellationIds).toEqual([]);
+  });
+
+  it("deduplicates restart while pending and clears the guard after failure", async () => {
+    const firstRequest = deferred<BridgeOperationResult>();
+    const restartTask = vi
+      .fn()
+      .mockReturnValueOnce(firstRequest.promise)
+      .mockResolvedValueOnce({ ok: true, operation_id: "retry-operation" });
+    const store = createDesktopStore({ restartTask } as never);
+
+    const first = store.getState().restartTask("task-1");
+    const duplicate = store.getState().restartTask("task-1");
+
+    expect(store.getState().pendingRestartIds).toEqual(["task-1"]);
+    expect(restartTask).toHaveBeenCalledTimes(1);
+
+    firstRequest.resolve(Promise.reject(new Error("restart failed")) as never);
+    await Promise.all([first, duplicate]);
+
+    expect(store.getState().pendingRestartIds).toEqual([]);
+
+    await store.getState().restartTask("task-1");
+
+    expect(restartTask).toHaveBeenCalledTimes(2);
+    expect(store.getState().pendingRestartIds).toEqual([]);
   });
 
   it("keeps selected volume names in the desktop store", () => {

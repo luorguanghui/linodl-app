@@ -421,6 +421,56 @@ def test_restart_download_uses_only_snapshot_and_cached_catalog_data():
     }
 
 
+def test_restart_download_matches_detail_page_cache_to_normalized_snapshot_url():
+    task_store = TaskStore()
+    download_task = task_store.create(
+        "download",
+        TaskInputSnapshot(
+            kind="download",
+            url="https://www.linovelib.com/novel/1/catalog",
+            selected_volumes=("第一卷",),
+        ),
+    )
+    captured = {}
+    volumes = [CatalogVolume(name="第一卷")]
+    novel = CatalogNovel(title="作品 A")
+
+    def catalog_factory(payload, message_queue, owner):
+        return EventWorker(
+            message_queue,
+            owner,
+            events=(("result", (volumes, novel)), ("done", None)),
+            task_id="task-catalog-detail",
+        )
+
+    def download_factory(payload, message_queue, owner):
+        captured.update(payload)
+        return EventWorker(
+            message_queue,
+            owner,
+            task_id="task-download-normalized",
+        )
+
+    controller = DesktopController(
+        task_store=task_store,
+        worker_factories={
+            "catalog": catalog_factory,
+            "download": download_factory,
+        },
+    )
+    controller.start(
+        "catalog",
+        url="https://www.linovelib.com/novel/1",
+    )
+    controller.drain_events()
+
+    controller.restart(download_task.id)
+
+    assert captured["volumes"] is volumes
+    assert captured["novel_info"] is novel
+    assert captured["selected_volumes"] == ["第一卷"]
+
+
 def test_restart_download_requires_cached_catalog_data():
     task_store = TaskStore()
     task = task_store.create(

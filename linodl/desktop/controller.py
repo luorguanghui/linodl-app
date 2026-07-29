@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Callable, Mapping
 
 from ..config.manager import ConfigManager
+from ..core.catalog import normalize_catalog_url
 from ..core.sanitization import redact_sensitive_text
 from ..gui.tasks import TaskStore, task_store as shared_task_store
 from ..gui.workers import (
@@ -19,6 +20,7 @@ from ..gui.workers import (
     VerifyWorker,
     WarmupWorker,
     cancel_task,
+    focus_task_verification,
 )
 from .serialization import to_primitive
 
@@ -68,6 +70,9 @@ class DesktopController:
         task_store: TaskStore | None = None,
         worker_factories: Mapping[str, WorkerFactory] | None = None,
         cancel_callback: Callable[[str], bool] = cancel_task,
+        focus_verification_callback: Callable[
+            [str], bool
+        ] = focus_task_verification,
     ):
         self._config = config
         self._task_store = task_store if task_store is not None else shared_task_store
@@ -79,6 +84,7 @@ class DesktopController:
         self._catalog_source_urls: dict[str, str] = {}
         self._operation_version = 0
         self._cancel_callback = cancel_callback
+        self._focus_verification_callback = focus_verification_callback
 
         factories = self._default_worker_factories() if config is not None else {}
         if worker_factories:
@@ -140,9 +146,9 @@ class DesktopController:
             )
             self._workers[operation_id] = worker
             if kind == "catalog":
-                self._catalog_source_urls[operation_id] = str(
-                    payload.get("url", "")
-                ).strip()
+                self._catalog_source_urls[operation_id] = normalize_catalog_url(
+                    str(payload.get("url", "")).strip()
+                )
             self._operation_version += 1
         try:
             worker.start()
@@ -252,6 +258,9 @@ class DesktopController:
                     break
         return True
 
+    def focus_verification(self, task_id: str) -> bool:
+        return self._focus_verification_callback(task_id)
+
     def restart(self, task_id: str) -> str:
         try:
             record = self._task_store.get(task_id)
@@ -274,7 +283,7 @@ class DesktopController:
         raise UnsupportedTaskInput(snapshot.kind or "<empty>")
 
     def _restart_download(self, snapshot) -> str:
-        url = snapshot.url.strip()
+        url = normalize_catalog_url(snapshot.url.strip())
         selected_volumes = list(snapshot.selected_volumes)
         if not url or not selected_volumes:
             raise TaskInputNotFound("download")

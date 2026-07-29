@@ -36,7 +36,7 @@ describe("ProfilePage", () => {
     await waitFor(() => expect(checkProfile).toHaveBeenCalledTimes(1));
   });
 
-  it("passes the requested page to visible manual verification", async () => {
+  it("passes the requested linovelib page to visible manual verification", async () => {
     const startManualVerification = vi.fn().mockResolvedValue({ ok: true });
     window.pywebview = {
       api: { start_manual_verification: startManualVerification },
@@ -44,14 +44,35 @@ describe("ProfilePage", () => {
     render(<ProfilePage />);
 
     fireEvent.change(screen.getByRole("textbox", { name: "验证页面地址" }), {
-      target: { value: "https://example.test/challenge" },
+      target: { value: "https://www.linovelib.com/novel/1" },
     });
     fireEvent.click(screen.getByRole("button", { name: "打开人工验证" }));
 
     await waitFor(() =>
       expect(startManualVerification).toHaveBeenCalledWith(
-        "https://example.test/challenge",
+        "https://www.linovelib.com/novel/1",
       ),
     );
+  });
+
+  it("only enables manual verification for HTTP(S) linovelib.com targets", () => {
+    render(<ProfilePage />);
+    const input = screen.getByRole("textbox", { name: "验证页面地址" });
+    const button = screen.getByRole("button", { name: "打开人工验证" });
+
+    fireEvent.change(input, {
+      target: { value: "https://example.com/novel/1" },
+    });
+    expect(button).toBeDisabled();
+
+    fireEvent.change(input, {
+      target: { value: "ftp://www.linovelib.com/novel/1" },
+    });
+    expect(button).toBeDisabled();
+
+    fireEvent.change(input, {
+      target: { value: "http://linovelib.com/novel/1" },
+    });
+    expect(button).toBeEnabled();
   });
 });

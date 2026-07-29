@@ -31,6 +31,15 @@ def cancel_task(task_id: str) -> bool:
     return True
 
 
+def focus_task_verification(task_id: str) -> bool:
+    """Ask the active worker for a task id to focus its verification window."""
+    with _worker_registry_lock:
+        worker = _worker_registry.get(task_id)
+    if worker is None or not worker.is_alive():
+        return False
+    return worker.request_verification_focus()
+
+
 class BackgroundWorker(threading.Thread):
     def __init__(
         self,
@@ -44,6 +53,7 @@ class BackgroundWorker(threading.Thread):
         super().__init__(daemon=True)
         self._queue = message_queue
         self._cancel_flag = threading.Event()
+        self._verification_focus_event = threading.Event()
         self._owner = owner
         self._task_store = task_store_instance or task_store
         self._task_id = self._task_store.create(
@@ -84,6 +94,12 @@ class BackgroundWorker(threading.Thread):
     def is_cancelled(self):
         return self._cancel_flag.is_set()
 
+    def request_verification_focus(self) -> bool:
+        if self.task.status is not TaskStatus.WAITING_FOR_VERIFICATION:
+            return False
+        self._verification_focus_event.set()
+        return True
+
     def report_progress(self, msg: str):
         if self.task.status in {
             TaskStatus.RUNNING,
@@ -117,6 +133,7 @@ class BackgroundWorker(threading.Thread):
             self.config,
             self._cancel_flag,
             self.report_progress,
+            focus_event=self._verification_focus_event,
         )
         if result.cancelled:
             self.cancel()

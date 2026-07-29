@@ -37,6 +37,7 @@ class VerificationService:
         cancel_event: threading.Event,
         progress: Callable[[str], None],
         *,
+        focus_event: threading.Event | None = None,
         timeout_ms: int = 300000,
     ) -> VerificationResult:
         if cancel_event.is_set():
@@ -53,6 +54,26 @@ class VerificationService:
             cancel_event=cancel_event,
             profile_wait_callback=progress,
         )
+        focus_request = focus_event or threading.Event()
+
+        def focus_existing_window() -> None:
+            if not focus_request.is_set():
+                return
+            focus_request.clear()
+            try:
+                bring_to_front = getattr(
+                    getattr(session, "page", None),
+                    "bring_to_front",
+                    None,
+                )
+                if callable(bring_to_front):
+                    bring_to_front()
+                    progress("已聚焦验证窗口，请在窗口中完成页面验证。")
+                    return
+            except Exception:
+                pass
+            progress("验证窗口已打开，请在任务栏中切换后完成页面验证。")
+
         try:
             progress("已打开可见 CloakBrowser，请完成页面验证。")
             session.start(prefer_cloak=True)
@@ -60,6 +81,7 @@ class VerificationService:
             deadline = time.monotonic() + timeout_ms / 1000
 
             while time.monotonic() < deadline:
+                focus_existing_window()
                 if cancel_event.is_set():
                     return VerificationResult(
                         False,
@@ -81,7 +103,7 @@ class VerificationService:
                             message="验证已通过，正在恢复原任务。",
                         )
 
-                time.sleep(self._poll_interval)
+                focus_request.wait(self._poll_interval)
 
             return VerificationResult(
                 False,

@@ -13,6 +13,21 @@ const profileLabels: Record<ProfileStatus, string> = {
   error: "检查失败",
 };
 
+function isValidVerificationTarget(value: string): boolean {
+  try {
+    const target = new URL(value.trim());
+    const hostname = target.hostname.toLowerCase().replace(/\.$/, "");
+    return (
+      (target.protocol === "http:" || target.protocol === "https:") &&
+      !target.username &&
+      !target.password &&
+      (hostname === "linovelib.com" || hostname.endsWith(".linovelib.com"))
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function ProfilePage() {
   const profile = useDesktopStore((state) => state.profile);
   const checkProfile = useDesktopStore((state) => state.checkProfile);
@@ -20,6 +35,7 @@ export function ProfilePage() {
     (state) => state.startManualVerification,
   );
   const [targetUrl, setTargetUrl] = useState("https://www.linovelib.com");
+  const targetIsValid = isValidVerificationTarget(targetUrl);
   const operationPending =
     profile.status === "checking" || profile.status === "busy";
 
@@ -69,7 +85,7 @@ export function ProfilePage() {
         <button
           className="profile-secondary-action"
           type="button"
-          disabled={operationPending || !targetUrl.trim()}
+          disabled={operationPending || !targetIsValid}
           onClick={() => void startManualVerification(targetUrl.trim())}
         >
           <ExternalLink size={16} aria-hidden="true" />

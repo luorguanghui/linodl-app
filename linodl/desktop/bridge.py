@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Callable
+from urllib.parse import urlsplit
 
 from ..config.manager import ConfigManager
 from .controller import (
@@ -171,7 +172,7 @@ class DesktopBridge:
 
     def start_manual_verification(self, target_url: str) -> dict:
         normalized = str(target_url or "").strip()
-        if not normalized:
+        if not self._is_valid_verification_target(normalized):
             return self._error(
                 "INVALID_VERIFICATION_TARGET",
                 "验证页面地址无效。",
@@ -190,6 +191,30 @@ class DesktopBridge:
                 "PROFILE_BUSY",
                 "浏览档案操作正在进行。",
                 "请等待当前操作完成后重试。",
+            )
+        return {"ok": True}
+
+    def focus_task_verification(self, task_id: str) -> dict:
+        normalized = str(task_id or "").strip()
+        if not normalized:
+            return self._error(
+                "INVALID_TASK",
+                "任务标识无效。",
+                "请刷新任务列表后重试。",
+            )
+        try:
+            focused = self._controller.focus_verification(normalized)
+        except Exception:
+            return self._error(
+                "VERIFICATION_FOCUS_FAILED",
+                "无法聚焦验证窗口。",
+                "请从任务栏切换到已打开的浏览器窗口。",
+            )
+        if not focused:
+            return self._error(
+                "VERIFICATION_TASK_NOT_ACTIVE",
+                "该任务当前没有等待中的验证窗口。",
+                "请刷新任务列表后重试。",
             )
         return {"ok": True}
 
@@ -252,6 +277,24 @@ class DesktopBridge:
         )
         if drain is not None:
             drain()
+
+    @staticmethod
+    def _is_valid_verification_target(target_url: str) -> bool:
+        try:
+            parsed = urlsplit(target_url)
+            hostname = (parsed.hostname or "").rstrip(".").lower()
+        except ValueError:
+            return False
+        return (
+            parsed.scheme.lower() in {"http", "https"}
+            and bool(parsed.netloc)
+            and parsed.username is None
+            and parsed.password is None
+            and (
+                hostname == "linovelib.com"
+                or hostname.endswith(".linovelib.com")
+            )
+        )
 
     @staticmethod
     def _error(code: str, message: str, action: str) -> dict:

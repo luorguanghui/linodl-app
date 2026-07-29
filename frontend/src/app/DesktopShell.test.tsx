@@ -32,6 +32,7 @@ afterEach(() => {
     activeOperationKind: null,
     selectedVolumes: [],
     pendingCancellationIds: [],
+    pendingRestartIds: [],
     profile: { status: "unknown", detail: "" },
     settings: {},
     notice: null,
@@ -61,6 +62,52 @@ describe("DesktopShell", () => {
     expect(
       screen.getByRole("button", { name: "阅读工作台" }),
     ).toHaveAttribute("aria-current", "page");
+  });
+
+  it("returns to the workbench and activates a completed task result", () => {
+    useDesktopStore.setState({
+      tasks: [
+        {
+          id: "task-completed",
+          title: "已完成目录",
+          status: "completed",
+          detail: "完成",
+          progress: 1,
+          input_snapshot: null,
+          error_detail: "",
+        },
+      ],
+      taskVersion: 1,
+      operations: {
+        "operation-completed": {
+          id: "operation-completed",
+          kind: "catalog",
+          task_id: "task-completed",
+          status: "completed",
+          detail: "完成",
+          result: [],
+          error: "",
+        },
+      },
+      operationVersion: 1,
+    });
+    render(<DesktopShell />);
+    fireEvent.click(screen.getByRole("button", { name: "内容校验" }));
+
+    expect(
+      screen.getByRole("heading", { name: "内容校验" }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "查看已完成目录结果" }),
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "阅读工作台" }),
+    ).toBeInTheDocument();
+    expect(useDesktopStore.getState().activeOperationId).toBe(
+      "operation-completed",
+    );
   });
 
   it("starts polling on mount and stops scheduling work after unmount", async () => {

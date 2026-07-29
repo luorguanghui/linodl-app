@@ -31,7 +31,7 @@ export function DesktopShell() {
             </AppErrorBoundary>
           </section>
 
-          <TaskInspector />
+          <TaskInspector onViewResult={() => setCurrentPage("workbench")} />
         </main>
       </div>
     </div>
