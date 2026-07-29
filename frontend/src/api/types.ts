@@ -30,3 +30,63 @@ export interface TaskInputDto {
   selected_volumes: string[];
   output_dir: string;
 }
+
+export type OperationStatus = "running" | "completed" | "failed" | "cancelled";
+
+export interface OperationDto {
+  id: string;
+  kind: string;
+  task_id: string;
+  status: OperationStatus;
+  detail: string;
+  result: unknown;
+  error: string;
+}
+
+export type OperationMapDto = Record<string, OperationDto>;
+
+export interface PollDto {
+  task_version: number;
+  tasks: TaskDto[] | null;
+  operation_version: number;
+  operations: OperationMapDto | null;
+}
+
+export interface DesktopSettingsDto {
+  output_dir?: string;
+  headless?: boolean;
+  anti_bot_mode?: string;
+  profile_dir?: string;
+  proxy?: string;
+  geoip?: boolean;
+  theme?: string;
+}
+
+export interface BootstrapDto extends PollDto {
+  config: DesktopSettingsDto;
+}
+
+export interface BridgeErrorDto {
+  code: string;
+  message: string;
+  action: string;
+}
+
+export interface BridgeErrorResponse {
+  ok: false;
+  error: BridgeErrorDto;
+}
+
+export interface BridgeOperationResponse {
+  ok: true;
+  operation_id: string;
+}
+
+export interface BridgeCancelResponse {
+  ok: true;
+}
+
+export type PollResponse = PollDto | BridgeErrorResponse;
+export type BootstrapResponse = BootstrapDto | BridgeErrorResponse;
+export type BridgeOperationResult = BridgeOperationResponse | BridgeErrorResponse;
+export type BridgeCancelResult = BridgeCancelResponse | BridgeErrorResponse;
