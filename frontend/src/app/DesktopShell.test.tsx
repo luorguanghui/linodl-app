@@ -64,6 +64,20 @@ describe("DesktopShell", () => {
     ).toHaveAttribute("aria-current", "page");
   });
 
+  it("opens browser profile health checks and manual verification from navigation", () => {
+    render(<DesktopShell />);
+
+    fireEvent.click(screen.getByRole("button", { name: "浏览档案" }));
+
+    expect(screen.getByRole("heading", { name: "尚未检查" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "检查浏览档案" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "打开人工验证" }),
+    ).toBeInTheDocument();
+  });
+
   it("returns to the workbench and activates a completed task result", () => {
     useDesktopStore.setState({
       tasks: [

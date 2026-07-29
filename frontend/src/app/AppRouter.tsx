@@ -2,20 +2,20 @@ import {
   BadgeCheck,
   BookOpenText,
   LibraryBig,
-  Search,
   Settings2,
+  ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
 
-import { EmptyState } from "../components/EmptyState";
 import { ArchivePage } from "../features/archive/ArchivePage";
+import { ProfilePage } from "../features/profile/ProfilePage";
 import { SettingsPage } from "../features/settings/SettingsPage";
 import { VerifyPage } from "../features/verify/VerifyPage";
 import { WorkbenchPage } from "../features/workbench/WorkbenchPage";
 
 export type PageKey =
   | "workbench"
-  | "search"
+  | "profile"
   | "catalog"
   | "validation"
   | "settings";
@@ -26,9 +26,6 @@ interface PageDefinition {
   chapter: string;
   chapterLabel: string;
   description: string;
-  emptyKicker: string;
-  emptyTitle: string;
-  emptyDetail: string;
   icon: LucideIcon;
 }
 
@@ -39,21 +36,15 @@ export const PAGE_DEFINITIONS: readonly PageDefinition[] = [
     chapter: "第一章",
     chapterLabel: "开卷",
     description: "把检索、书目与校验进度收束在同一张编辑桌上。",
-    emptyKicker: "尚未开卷",
-    emptyTitle: "先找到一本想整理的作品",
-    emptyDetail: "从作品检索开始；任务进度会持续留在右侧检查器中。",
     icon: BookOpenText,
   },
   {
-    key: "search",
-    label: "作品检索",
+    key: "profile",
+    label: "浏览档案",
     chapter: "第二章",
     chapterLabel: "寻书",
-    description: "以书名或线索定位作品，再带着结果进入书目整理。",
-    emptyKicker: "等待线索",
-    emptyTitle: "检索入口即将接入",
-    emptyDetail: "这一页会承载作品关键词与候选结果，不会打断全局任务进度。",
-    icon: Search,
+    description: "检查浏览档案健康状态，或在可见浏览器中完成站点人工验证。",
+    icon: ShieldCheck,
   },
   {
     key: "catalog",
@@ -61,9 +52,6 @@ export const PAGE_DEFINITIONS: readonly PageDefinition[] = [
     chapter: "第三章",
     chapterLabel: "归档",
     description: "浏览本地作品、核对卷章数量，并沿用现有导出流程生成 EPUB。",
-    emptyKicker: "暂无归档",
-    emptyTitle: "下载完成后在这里导出",
-    emptyDetail: "归档只从设置中的输出目录读取。",
     icon: LibraryBig,
   },
   {
@@ -72,9 +60,6 @@ export const PAGE_DEFINITIONS: readonly PageDefinition[] = [
     chapter: "第四章",
     chapterLabel: "校勘",
     description: "集中检查缺章、重复与任务异常，让资料在归档前保持完整。",
-    emptyKicker: "暂无待校内容",
-    emptyTitle: "完成采集后在这里校验",
-    emptyDetail: "发现的问题会指向具体卷册与章节，并给出可执行的处理建议。",
     icon: BadgeCheck,
   },
   {
@@ -83,9 +68,6 @@ export const PAGE_DEFINITIONS: readonly PageDefinition[] = [
     chapter: "第五章",
     chapterLabel: "偏好",
     description: "管理输出位置与采集方式，让每次整理沿用同一套工作习惯。",
-    emptyKicker: "工作室偏好",
-    emptyTitle: "设置面板即将接入",
-    emptyDetail: "桌面偏好会集中在这里，不混入具体作品的编辑流程。",
     icon: Settings2,
   },
 ] as const;
@@ -103,7 +85,6 @@ interface AppRouterProps {
 
 export function AppRouter({ page }: AppRouterProps) {
   const definition = getPageDefinition(page);
-  const PageIcon = definition.icon;
 
   return (
     <article className="studio-page">
@@ -120,6 +101,8 @@ export function AppRouter({ page }: AppRouterProps) {
 
       {page === "workbench" ? (
         <WorkbenchPage />
+      ) : page === "profile" ? (
+        <ProfilePage />
       ) : page === "catalog" ? (
         <ArchivePage />
       ) : page === "validation" ? (
@@ -127,12 +110,7 @@ export function AppRouter({ page }: AppRouterProps) {
       ) : page === "settings" ? (
         <SettingsPage />
       ) : (
-        <EmptyState
-          icon={<PageIcon size={22} strokeWidth={1.8} />}
-          kicker={definition.emptyKicker}
-          title={definition.emptyTitle}
-          detail={definition.emptyDetail}
-        />
+        null
       )}
     </article>
   );
