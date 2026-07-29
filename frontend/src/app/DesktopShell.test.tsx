@@ -174,4 +174,24 @@ describe("DesktopShell", () => {
 
     expect(poll).not.toHaveBeenCalled();
   });
+
+  it("asks before forcing the desktop window to close", async () => {
+    const forceClose = vi.fn().mockResolvedValue({ ok: true });
+    window.pywebview = {
+      api: {
+        bootstrap: vi.fn().mockResolvedValue(emptySnapshot),
+        poll: vi.fn().mockResolvedValue(emptySnapshot),
+        force_close: forceClose,
+      },
+    };
+    render(<DesktopShell />);
+
+    act(() => window.linodlConfirmClose?.());
+
+    expect(screen.getByRole("dialog")).toHaveTextContent("仍有任务正在运行");
+    fireEvent.click(screen.getByRole("button", { name: "确认退出" }));
+
+    await act(flushPromises);
+    expect(forceClose).toHaveBeenCalledTimes(1);
+  });
 });

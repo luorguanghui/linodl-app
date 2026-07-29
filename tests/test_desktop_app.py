@@ -8,10 +8,34 @@ import pytest
 @pytest.fixture
 def desktop_app(monkeypatch):
     calls = []
-    window = object()
+
+    class Event:
+        def __init__(self):
+            self.callbacks = []
+
+        def __iadd__(self, callback):
+            self.callbacks.append(callback)
+            return self
+
+    class Window:
+        def __init__(self):
+            self.events = type(
+                "Events",
+                (),
+                {
+                    "closing": Event(),
+                    "moved": Event(),
+                    "resized": Event(),
+                    "maximized": Event(),
+                    "restored": Event(),
+                    "shown": Event(),
+                },
+            )()
+
+    window = Window()
     webview = ModuleType("webview")
 
-    def create_window(title, *, url, js_api, width, height, min_size):
+    def create_window(title, *, url, js_api, width, height, min_size, **kwargs):
         calls.append({"url": url, "debug": js_api.debug})
         return window
 
@@ -58,3 +82,107 @@ def test_run_desktop_uses_development_url_in_debug_mode(desktop_app, monkeypatch
     app.run_desktop(config=object(), debug=True)
 
     assert calls == [{"url": "http://127.0.0.1:5173", "debug": True}]
+
+
+def test_run_desktop_defers_close_when_a_task_is_active(desktop_app, monkeypatch):
+    app, _ = desktop_app
+    callbacks = []
+
+    class Store:
+        def load(self):
+            return app.WindowState()
+
+        def save(self, state):
+            self.state = state
+
+    class Event:
+        def __iadd__(self, callback):
+            callbacks.append(callback)
+            return self
+
+    class Window:
+        events = type("Events", (), {"closing": Event()})()
+
+        def evaluate_js(self, script):
+            self.script = script
+
+    window = Window()
+    monkeypatch.setattr(app, "WindowStateStore", lambda path: Store())
+    monkeypatch.setattr(app.webview, "create_window", lambda *args, **kwargs: window)
+
+    class Bridge:
+        debug = False
+
+        def __init__(self, config, debug):
+            self.debug = debug
+
+        def attach_window(self, attached_window):
+            assert attached_window is window
+
+        def consume_force_close(self):
+            return False
+
+        def has_active_tasks(self):
+            return True
+
+    bridge_module = sys.modules["linodl.desktop.bridge"]
+    bridge_module.DesktopBridge = Bridge
+
+    app.run_desktop(config=object())
+
+    assert callbacks[0]() is False
+    assert window.script == "window.linodlConfirmClose()"
+
+
+def test_run_desktop_saves_normal_bounds_when_closed(desktop_app, monkeypatch):
+    app, _ = desktop_app
+    saved = []
+
+    class Store:
+        def load(self):
+            return app.WindowState()
+
+        def save(self, state):
+            saved.append(state)
+
+    class Bridge:
+        debug = False
+
+        def __init__(self, config, debug):
+            self.debug = debug
+
+        def attach_window(self, window):
+            self.window = window
+
+        def consume_force_close(self):
+            return False
+
+        def has_active_tasks(self):
+            return False
+
+    class Window:
+        width = 1440
+        height = 900
+        x = 40
+        y = 30
+        maximized = False
+
+        class Closing:
+            def __init__(self):
+                self.callbacks = []
+
+            def __iadd__(self, callback):
+                self.callbacks.append(callback)
+                return self
+
+        events = type("Events", (), {"closing": Closing()})()
+
+    window = Window()
+    monkeypatch.setattr(app, "WindowStateStore", lambda path: Store(), raising=False)
+    monkeypatch.setattr(app.webview, "create_window", lambda *args, **kwargs: window)
+    sys.modules["linodl.desktop.bridge"].DesktopBridge = Bridge
+
+    app.run_desktop(config=object())
+
+    assert window.events.closing.callbacks[0]() is None
+    assert saved == [app.WindowState(1440, 900, 40, 30, False)]

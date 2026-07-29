@@ -24,6 +24,26 @@ python -m playwright install chromium
 
 ## 使用
 
+### React desktop UI
+
+Install the Python and frontend dependencies, then build and start the default desktop UI:
+
+```powershell
+pip install -r requirements.txt
+Set-Location frontend
+npm install
+npm run build
+Set-Location ..
+python -m linodl --gui
+```
+
+For frontend development only, set `LINODL_FRONTEND_URL=http://localhost:5173`
+and launch `python -m linodl --gui --debug` while Vite is running. Production
+launches use the built `frontend/dist` assets.
+
+`python -m linodl --legacy-gui` remains available as a temporary fallback to
+the CustomTkinter interface.
+
 交互式模式：
 
 ```powershell

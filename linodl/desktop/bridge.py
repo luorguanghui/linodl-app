@@ -8,6 +8,7 @@ from typing import Callable, Mapping
 from urllib.parse import urlsplit
 
 from ..config.manager import ConfigManager
+from ..gui.tasks import TERMINAL_STATUSES
 from .archive import load_archive, scan_archives
 from .controller import (
     CatalogOperationNotFound,
@@ -37,9 +38,31 @@ class DesktopBridge:
         self._controller = controller or DesktopController(config=config)
         self._profile_service = profile_service or DesktopProfileService(config)
         self._window = None
+        self._force_close_requested = False
 
     def attach_window(self, window) -> None:
         self._window = window
+
+    def has_active_tasks(self) -> bool:
+        task_store = getattr(self._controller, "_task_store", None)
+        if task_store is None:
+            return False
+        return any(
+            task.status not in TERMINAL_STATUSES
+            for task in task_store.snapshot()
+        )
+
+    def force_close(self) -> dict:
+        self._force_close_requested = True
+        if self._window is not None:
+            self._window.destroy()
+        return {"ok": True}
+
+    def consume_force_close(self) -> bool:
+        if not self._force_close_requested:
+            return False
+        self._force_close_requested = False
+        return True
 
     def bootstrap(self) -> dict:
         try:

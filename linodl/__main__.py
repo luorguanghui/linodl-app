@@ -19,7 +19,20 @@ def main():
     if "--gui" in sys.argv:
         sys.argv.remove("--gui")
         try:
+            from .desktop.app import run_desktop
+
+            run_desktop(config, debug=debug)
+        except ImportError as e:
+            print(f"GUI dependencies not installed: {e}")
+            print("Run: pip install -r requirements.txt")
+            sys.exit(1)
+        return
+
+    if "--legacy-gui" in sys.argv:
+        sys.argv.remove("--legacy-gui")
+        try:
             from .gui.app import MainWindow
+
             MainWindow(config, debug=debug).run()
         except ImportError as e:
             print(f"GUI dependencies not installed: {e}")

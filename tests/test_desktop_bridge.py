@@ -79,6 +79,41 @@ def make_bridge(tmp_path, controller=None):
     )
 
 
+def test_bridge_force_close_allows_the_next_native_close_event(tmp_path):
+    class Window:
+        def __init__(self):
+            self.destroyed = False
+
+        def destroy(self):
+            self.destroyed = True
+
+    bridge = make_bridge(tmp_path)
+    window = Window()
+    bridge.attach_window(window)
+
+    assert bridge.force_close() == {"ok": True}
+    assert window.destroyed is True
+    assert bridge.consume_force_close() is True
+    assert bridge.consume_force_close() is False
+
+
+def test_bridge_identifies_non_terminal_tasks_for_close_confirmation(tmp_path):
+    task_store = TaskStore()
+    controller = DesktopController(task_store=task_store)
+    bridge = DesktopBridge(
+        ConfigManager(str(tmp_path / "settings.ini")),
+        controller=controller,
+        profile_service=FakeProfileService(),
+    )
+    task = task_store.create("active")
+
+    assert bridge.has_active_tasks() is True
+
+    task_store.transition(task.id, TaskStatus.COMPLETED)
+
+    assert bridge.has_active_tasks() is False
+
+
 def test_bootstrap_never_reports_unknown_profile_as_healthy(tmp_path):
     bridge = make_bridge(tmp_path)
 

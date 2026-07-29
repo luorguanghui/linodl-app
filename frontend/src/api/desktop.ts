@@ -19,6 +19,7 @@ type PywebviewMethods = Record<
 declare global {
   interface Window {
     pywebview?: { api: PywebviewMethods };
+    linodlConfirmClose?: () => void;
   }
 }
 
@@ -76,6 +77,7 @@ export interface DesktopApi {
   saveSettings(settings: SaveSettingsDto): Promise<BridgeCommandResult>;
   chooseDirectory(): Promise<BridgeDirectoryResult>;
   openDirectory(path: string): Promise<BridgeCommandResult>;
+  forceClose(): Promise<BridgeCommandResult>;
 }
 
 export const desktopApi: DesktopApi = {
@@ -143,5 +145,8 @@ export const desktopApi: DesktopApi = {
   },
   openDirectory(path) {
     return invoke<BridgeCommandResult>("open_directory", path);
+  },
+  forceClose() {
+    return invoke<BridgeCommandResult>("force_close");
   },
 };
