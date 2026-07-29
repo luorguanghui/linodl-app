@@ -6,14 +6,17 @@
 
 html {
   min-width: 320px;
+  height: 100%;
   min-height: 100%;
   background: var(--color-canvas);
 }
 
 body {
   min-width: 320px;
+  height: 100%;
   min-height: 100vh;
   margin: 0;
+  overflow: hidden;
   color: var(--color-text);
   background:
     linear-gradient(115deg, var(--color-canvas-wash), transparent 32%),
@@ -41,19 +44,25 @@ a:focus-visible {
 }
 
 #root {
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
 }
 
 .desktop-shell {
   display: grid;
   grid-template-columns: 196px minmax(0, 1fr);
   min-width: 0;
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .desktop-main {
   min-width: 0;
+  min-height: 0;
   padding: var(--space-4);
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .workspace-grid {
@@ -81,6 +90,7 @@ a:focus-visible {
   position: relative;
   z-index: 2;
   display: flex;
+  height: 100%;
   min-width: 0;
   flex-direction: column;
   gap: var(--space-6);

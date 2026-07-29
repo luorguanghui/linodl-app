@@ -122,4 +122,13 @@ describe("visual tokens", () => {
       /:root\[data-theme="dark"\][\s\S]*--color-canvas:\s*#[0-9a-f]{6}/i,
     );
   });
+
+  it("keeps the book rail outside the scrolling workspace", () => {
+    expect(ruleDeclarations("body").get("overflow")).toBe("hidden");
+    expect(ruleDeclarations("#root").get("height")).toBe("100%");
+    expect(ruleDeclarations(".desktop-shell").get("height")).toBe("100%");
+    expect(ruleDeclarations(".desktop-shell").get("overflow")).toBe("hidden");
+    expect(ruleDeclarations(".desktop-main").get("min-height")).toBe("0");
+    expect(ruleDeclarations(".desktop-main").get("overflow-y")).toBe("auto");
+  });
 });
