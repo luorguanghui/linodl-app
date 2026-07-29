@@ -34,8 +34,10 @@ def desktop_app(monkeypatch):
 
     window = Window()
     webview = ModuleType("webview")
+    webview.created_titles = []
 
     def create_window(title, *, url, js_api, width, height, min_size, **kwargs):
+        webview.created_titles.append(title)
         calls.append({"url": url, "debug": js_api.debug})
         return window
 
@@ -57,6 +59,14 @@ def desktop_app(monkeypatch):
     monkeypatch.delitem(sys.modules, "linodl.desktop.app", raising=False)
 
     return importlib.import_module("linodl.desktop.app"), calls
+
+
+def test_run_desktop_uses_unicode_window_title(desktop_app):
+    app, _ = desktop_app
+
+    app.run_desktop(config=object())
+
+    assert app.webview.created_titles == ["linodl · 轻小说资料库"]
 
 
 def test_run_desktop_uses_local_assets_outside_debug_mode(desktop_app, monkeypatch, tmp_path):

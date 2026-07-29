@@ -27,7 +27,7 @@ def run_desktop(config: ConfigManager, debug: bool = False) -> None:
     if saved_state.x is not None and saved_state.y is not None:
         create_options.update({"x": saved_state.x, "y": saved_state.y})
     window = webview.create_window(
-        "linodl 路 杞诲皬璇磋祫鏂欏簱",
+        "linodl · 轻小说资料库",
         url=url,
         js_api=bridge,
         **create_options,
