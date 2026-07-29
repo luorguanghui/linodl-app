@@ -58,6 +58,18 @@ def test_task_store_snapshot_is_detached_from_future_changes():
     assert before[0].progress == 0.0
 
 
+def test_task_store_versioned_snapshot_is_detached_from_future_changes():
+    from linodl.gui.tasks import TaskStatus, TaskStore
+
+    store = TaskStore()
+    task = store.create("test task")
+    _, before = store.snapshot_versioned()
+    store.transition(task.id, TaskStatus.RUNNING, "running", progress=0.5)
+
+    assert before[0].status is TaskStatus.QUEUED
+    assert before[0].progress == 0.0
+
+
 def test_worker_cancel_only_finishes_after_thread_exits():
     from linodl.gui.tasks import TaskStatus
     from linodl.gui.workers import BackgroundWorker

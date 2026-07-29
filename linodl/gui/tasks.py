@@ -52,6 +52,7 @@ class TaskStore:
     def __init__(self):
         self._lock = threading.RLock()
         self._records: dict[str, TaskRecord] = {}
+        self._version = 0
 
     def create(
         self,
@@ -65,6 +66,7 @@ class TaskStore:
         )
         with self._lock:
             self._records[record.id] = record
+            self._version += 1
             return replace(record)
 
     def get(self, task_id: str) -> TaskRecord:
@@ -90,11 +92,21 @@ class TaskStore:
                 record.progress = max(0.0, min(1.0, progress))
             if error_detail is not None:
                 record.error_detail = error_detail
+            self._version += 1
             return replace(record)
 
     def snapshot(self) -> list[TaskRecord]:
         with self._lock:
             return [replace(record) for record in self._records.values()]
+
+    def snapshot_versioned(
+        self,
+        after_version: int = -1,
+    ) -> tuple[int, list[TaskRecord] | None]:
+        with self._lock:
+            if after_version == self._version:
+                return self._version, None
+            return self._version, [replace(record) for record in self._records.values()]
 
 
 task_store = TaskStore()
