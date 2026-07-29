@@ -117,8 +117,23 @@ def test_concurrent_drainers_preserve_error_before_done_queue_order(monkeypatch)
     real_get_nowait = message_queue.get_nowait
     error_dequeued = threading.Event()
     release_error = threading.Event()
+    second_attempted_processing = threading.Event()
+    second_dequeued_done = threading.Event()
     second_finished = threading.Event()
     second_observed_status = []
+
+    class ObservableLock:
+        def __init__(self, lock):
+            self._lock = lock
+
+        def __enter__(self):
+            if threading.current_thread().name == "done-drainer":
+                second_attempted_processing.set()
+            self._lock.acquire()
+            return self
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            self._lock.release()
 
     def controlled_get_nowait():
         event = real_get_nowait()
@@ -128,9 +143,15 @@ def test_concurrent_drainers_preserve_error_before_done_queue_order(monkeypatch)
         ):
             error_dequeued.set()
             assert release_error.wait(2)
+        if (
+            threading.current_thread().name == "done-drainer"
+            and event[0] == "done"
+        ):
+            second_dequeued_done.set()
         return event
 
     monkeypatch.setattr(message_queue, "get_nowait", controlled_get_nowait)
+    monkeypatch.setattr(controller, "_lock", ObservableLock(controller._lock))
 
     first = threading.Thread(target=controller.drain_events, name="error-drainer")
 
@@ -144,7 +165,9 @@ def test_concurrent_drainers_preserve_error_before_done_queue_order(monkeypatch)
     first.start()
     assert error_dequeued.wait(1)
     second.start()
-    second_finished.wait(1)
+    assert second_attempted_processing.wait(1)
+    if second_dequeued_done.is_set():
+        assert second_finished.wait(1)
     release_error.set()
     first.join(2)
     second.join(2)
