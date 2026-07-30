@@ -44,6 +44,18 @@ launches use the built `frontend/dist` assets.
 `python -m linodl --legacy-gui` remains available as a temporary fallback to
 the CustomTkinter interface.
 
+### Windows EXE
+
+在项目根目录双击 `build_exe.bat`，或在 PowerShell 中运行：
+
+```powershell
+.\build_exe.bat
+```
+
+构建完成后，可直接运行 `release\linodl\linodl.exe`。发布时请复制整个
+`release\linodl` 目录；首次使用 CloakBrowser 时，浏览器内核会下载到当前
+Windows 用户的 `.cloakbrowser` 缓存目录。
+
 交互式模式：
 
 ```powershell
