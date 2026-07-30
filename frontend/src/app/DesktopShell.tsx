@@ -1,5 +1,7 @@
+import { Clock3, LogOut } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { AppButton } from "../components/AppButton";
 import { AppErrorBoundary } from "../components/AppErrorBoundary";
 import { BookRail } from "../components/BookRail";
 import { ChapterRibbon } from "../components/ChapterRibbon";
@@ -63,12 +65,20 @@ export function DesktopShell() {
         >
           <h2>仍有任务正在运行</h2>
           <p>现在退出会中断这些任务。</p>
-          <button type="button" onClick={() => setConfirmClose(false)}>
+          <AppButton
+            variant="secondary"
+            icon={Clock3}
+            onClick={() => setConfirmClose(false)}
+          >
             继续等待
-          </button>
-          <button type="button" onClick={() => void desktopApi.forceClose()}>
+          </AppButton>
+          <AppButton
+            variant="danger"
+            icon={LogOut}
+            onClick={() => void desktopApi.forceClose()}
+          >
             确认退出
-          </button>
+          </AppButton>
         </div>
       ) : null}
     </div>

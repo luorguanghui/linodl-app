@@ -1,7 +1,15 @@
-import { ClipboardList, Inbox } from "lucide-react";
+import {
+  ClipboardList,
+  Eye,
+  ExternalLink,
+  Inbox,
+  RotateCcw,
+  XCircle,
+} from "lucide-react";
 
 import type { TaskDto, TaskStatus } from "../api/types";
 import { useDesktopStore } from "../store/desktop";
+import { AppButton } from "./AppButton";
 import { EmptyState } from "./EmptyState";
 
 const taskStatusLabels: Record<TaskStatus, string> = {
@@ -151,40 +159,48 @@ export function TaskInspector({
 
                 <div className="task-card-actions">
                   {canCancel(task) ? (
-                    <button
+                    <AppButton
                       className="task-action-button task-cancel-button"
-                      type="button"
+                      variant="danger"
+                      size="compact"
+                      icon={XCircle}
                       aria-label={`取消${task.title}`}
                       disabled={cancellationPending}
                       onClick={() => void cancelTask(task.id)}
                     >
                       {cancellationPending ? "正在取消" : "取消任务"}
-                    </button>
+                    </AppButton>
                   ) : null}
                   {task.status === "waiting_for_verification" ? (
-                    <button
+                    <AppButton
                       className="task-action-button"
-                      type="button"
+                      variant="secondary"
+                      size="compact"
+                      icon={ExternalLink}
                       onClick={() => void focusTaskVerification(task.id)}
                     >
                       打开人工验证
-                    </button>
+                    </AppButton>
                   ) : null}
                   {task.status === "failed" || task.status === "cancelled" ? (
-                    <button
+                    <AppButton
                       className="task-action-button"
-                      type="button"
+                      variant="secondary"
+                      size="compact"
+                      icon={RotateCcw}
                       aria-label={`重新开始${task.title}`}
                       disabled={restartPending}
                       onClick={() => void restartTask(task.id)}
                     >
                       {restartPending ? "正在重新开始" : "重新开始"}
-                    </button>
+                    </AppButton>
                   ) : null}
                   {task.status === "completed" ? (
-                    <button
+                    <AppButton
                       className="task-action-button"
-                      type="button"
+                      variant="secondary"
+                      size="compact"
+                      icon={Eye}
                       aria-label={`查看${task.title}结果`}
                       onClick={() => {
                         const operation = Object.values(operations).find(
@@ -196,7 +212,7 @@ export function TaskInspector({
                       }}
                     >
                       查看结果
-                    </button>
+                    </AppButton>
                   ) : null}
                 </div>
               </li>

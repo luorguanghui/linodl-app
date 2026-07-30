@@ -1,7 +1,13 @@
-import { BadgeCheck, FolderOpen, ScanSearch } from "lucide-react";
+import {
+  BadgeCheck,
+  FolderOpen,
+  RefreshCw,
+  ScanSearch,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 
 import type { ArchiveDto, OperationDto } from "../../api/types";
+import { AppButton } from "../../components/AppButton";
 import { useDesktopStore } from "../../store/desktop";
 import "../utility.css";
 
@@ -115,21 +121,22 @@ function VerifyView({ model }: { model: VerifyModel }) {
             <span>输出目录</span>
             <input aria-label="校验目录" value={directory} readOnly />
           </label>
-          <button
+          <AppButton
             className="utility-button"
-            type="button"
+            variant="secondary"
+            icon={FolderOpen}
             onClick={() => void chooseDirectory()}
           >
-            <FolderOpen size={16} aria-hidden="true" />
             选择目录
-          </button>
-          <button
+          </AppButton>
+          <AppButton
             className="utility-button"
-            type="button"
+            variant="secondary"
+            icon={RefreshCw}
             onClick={() => void model.loadArchives()}
           >
             重新扫描
-          </button>
+          </AppButton>
         </div>
 
         {directory !== model.outputDir ? (
@@ -171,15 +178,14 @@ function VerifyView({ model }: { model: VerifyModel }) {
           <p className="utility-note">
             校验进度会同步保留在右侧任务检查器中。
           </p>
-          <button
-            className="utility-button is-primary"
-            type="button"
+          <AppButton
+            className="utility-button"
+            icon={BadgeCheck}
             disabled={!selectedArchiveId}
             onClick={() => void model.startVerify(selectedArchiveId)}
           >
-            <BadgeCheck size={16} aria-hidden="true" />
             开始校验
-          </button>
+          </AppButton>
         </footer>
       </div>
 

@@ -1,4 +1,6 @@
-import { BookOpen } from "lucide-react";
+import { BookOpen, BookOpenText } from "lucide-react";
+
+import { AppButton } from "../../components/AppButton";
 
 export interface NovelResult {
   novel_id?: string;
@@ -50,14 +52,15 @@ export function NovelResults({
                   {novel.description || "该作品暂无简介。"}
                 </p>
               </div>
-              <button
+              <AppButton
                 className="workbench-secondary-action"
-                type="button"
+                variant="secondary"
+                icon={BookOpenText}
                 onClick={() => onOpenCatalog(novel.catalog_url)}
                 aria-label={`读取《${novel.title}》目录`}
               >
                 读取目录
-              </button>
+              </AppButton>
             </li>
           ))}
         </ol>

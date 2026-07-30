@@ -1,5 +1,7 @@
+import { ArrowRight } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { AppButton } from "./AppButton";
 interface EmptyStateProps {
   icon: ReactNode;
   kicker: string;
@@ -29,13 +31,13 @@ export function EmptyState({
       <h2 className="empty-state-title">{title}</h2>
       <p className="empty-state-detail">{detail}</p>
       {action ? (
-        <button
+        <AppButton
           className="empty-state-action"
-          type="button"
+          icon={ArrowRight}
           onClick={action.onClick}
         >
           {action.label}
-        </button>
+        </AppButton>
       ) : null}
     </section>
   );

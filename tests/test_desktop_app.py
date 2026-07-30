@@ -35,6 +35,7 @@ def desktop_app(monkeypatch):
     window = Window()
     webview = ModuleType("webview")
     webview.created_titles = []
+    webview.started = []
 
     def create_window(title, *, url, js_api, width, height, min_size, **kwargs):
         webview.created_titles.append(title)
@@ -42,7 +43,10 @@ def desktop_app(monkeypatch):
         return window
 
     webview.create_window = create_window
-    webview.start = lambda *, debug: None
+    def start(*, debug, icon=None):
+        webview.started.append({"debug": debug, "icon": icon})
+
+    webview.start = start
 
     bridge = ModuleType("linodl.desktop.bridge")
 
@@ -73,16 +77,19 @@ def test_run_desktop_uses_local_assets_outside_debug_mode(desktop_app, monkeypat
     app, calls = desktop_app
     index_file = tmp_path / "index.html"
     index_file.write_text("<main>linodl</main>", encoding="utf-8")
+    icon_file = tmp_path / "linodl.ico"
+    icon_file.write_bytes(b"icon")
     monkeypatch.setenv("LINODL_FRONTEND_URL", "http://127.0.0.1:5173")
     monkeypatch.setattr(
         app.DesktopAssets,
         "resolve",
-        lambda: app.DesktopAssets(index_file=index_file),
+        lambda: app.DesktopAssets(index_file=index_file, icon_file=icon_file),
     )
 
     app.run_desktop(config=object(), debug=False)
 
     assert calls == [{"url": index_file.as_uri(), "debug": False}]
+    assert app.webview.started == [{"debug": False, "icon": str(icon_file)}]
 
 
 def test_run_desktop_uses_development_url_in_debug_mode(desktop_app, monkeypatch):

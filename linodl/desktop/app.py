@@ -14,7 +14,8 @@ def run_desktop(config: ConfigManager, debug: bool = False) -> None:
     from .bridge import DesktopBridge
 
     development_url = os.environ.get("LINODL_FRONTEND_URL", "").strip() if debug else ""
-    url = development_url or DesktopAssets.resolve().url
+    assets = DesktopAssets.resolve()
+    url = development_url or assets.url
     bridge = DesktopBridge(config=config, debug=debug)
     state_store = WindowStateStore(Path.home() / ".linodl-window.json")
     saved_state = state_store.load()
@@ -72,7 +73,7 @@ def run_desktop(config: ConfigManager, debug: bool = False) -> None:
     _subscribe(window, "resized", record_normal_bounds)
     if saved_state.maximized:
         _subscribe(window, "shown", lambda *_args: window.maximize())
-    webview.start(debug=debug)
+    webview.start(debug=debug, icon=str(assets.icon_file))
 
 
 def _subscribe(window, event_name: str, callback) -> None:

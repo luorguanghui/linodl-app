@@ -1,9 +1,8 @@
-import { BookMarked } from "lucide-react";
-
 import {
   PAGE_DEFINITIONS,
   type PageKey,
 } from "../app/AppRouter";
+import { BrandMark } from "./BrandMark";
 
 interface BookRailProps {
   currentPage: PageKey;
@@ -15,7 +14,7 @@ export function BookRail({ currentPage, onNavigate }: BookRailProps) {
     <aside className="book-rail">
       <div className="rail-brand">
         <span className="rail-brand-mark" aria-hidden="true">
-          <BookMarked size={20} strokeWidth={1.8} />
+          <BrandMark className="rail-brand-symbol" />
         </span>
         <div className="rail-brand-copy">
           <p className="rail-brand-title">轻小说资料工作室</p>

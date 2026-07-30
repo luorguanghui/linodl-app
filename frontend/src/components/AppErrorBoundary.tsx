@@ -4,7 +4,9 @@ import {
   type ErrorInfo,
   type ReactNode,
 } from "react";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, RotateCcw } from "lucide-react";
+
+import { AppButton } from "./AppButton";
 
 interface AppErrorBoundaryProps {
   children: ReactNode;
@@ -68,13 +70,13 @@ export class AppErrorBoundary extends Component<
           <p className="page-error-detail">
             页面内容遇到渲染问题。全局任务仍在运行，可以重新加载当前页面。
           </p>
-          <button
+          <AppButton
             className="page-error-button"
-            type="button"
+            icon={RotateCcw}
             onClick={this.retry}
           >
             重新加载页面
-          </button>
+          </AppButton>
         </section>
       );
     }

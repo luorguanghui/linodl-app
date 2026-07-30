@@ -1,7 +1,13 @@
-import { Archive, ExternalLink, FileArchive } from "lucide-react";
+import {
+  Archive,
+  ExternalLink,
+  FileArchive,
+  RefreshCw,
+} from "lucide-react";
 import { useEffect, useState } from "react";
 
 import type { ArchiveDto, OperationDto } from "../../api/types";
+import { AppButton } from "../../components/AppButton";
 import { useDesktopStore } from "../../store/desktop";
 import "../utility.css";
 
@@ -74,13 +80,14 @@ function ArchiveView({ model }: { model: ArchiveModel }) {
             </h2>
             <p>只列出设置中输出目录的直接子目录。</p>
           </div>
-          <button
+          <AppButton
             className="utility-button"
-            type="button"
+            variant="secondary"
+            icon={RefreshCw}
             onClick={() => void model.loadArchives()}
           >
             刷新归档
-          </button>
+          </AppButton>
         </header>
 
         {model.archives.length === 0 ? (
@@ -100,26 +107,27 @@ function ArchiveView({ model }: { model: ArchiveModel }) {
                   <span>{archive.chapter_count} 章</span>
                 </div>
                 <div className="archive-actions">
-                  <button
+                  <AppButton
                     className="utility-button"
-                    type="button"
+                    variant="secondary"
+                    size="compact"
+                    icon={ExternalLink}
                     aria-label={`打开${archive.title}目录`}
                     onClick={() => void model.openDirectory(archive.path)}
                   >
-                    <ExternalLink size={15} aria-hidden="true" />
                     打开
-                  </button>
-                  <button
-                    className="utility-button is-primary"
-                    type="button"
+                  </AppButton>
+                  <AppButton
+                    className="utility-button"
+                    size="compact"
+                    icon={FileArchive}
                     aria-label={`导出${archive.title}`}
                     onClick={() =>
                       void model.startExport(archive.id, perVolume)
                     }
                   >
-                    <FileArchive size={15} aria-hidden="true" />
                     导出 EPUB
-                  </button>
+                  </AppButton>
                 </div>
               </li>
             ))}

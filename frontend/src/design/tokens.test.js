@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const baseCss = readFileSync("src/design/base.css", "utf8");
+const buttonCss = readFileSync("src/design/buttons.css", "utf8");
 const tokensCss = readFileSync("src/design/tokens.css", "utf8");
 
 const rootFontSize = 16;
@@ -24,6 +25,17 @@ function ruleDeclarations(selector) {
   const bodyStart = baseCss.indexOf("{", start) + 1;
   const bodyEnd = baseCss.indexOf("}", bodyStart);
   return declarations(baseCss.slice(bodyStart, bodyEnd));
+}
+
+function buttonRuleDeclarations(selector) {
+  const start = buttonCss.indexOf(`${selector} {`);
+  if (start < 0) {
+    throw new Error(`Missing button CSS rule: ${selector}`);
+  }
+
+  const bodyStart = buttonCss.indexOf("{", start) + 1;
+  const bodyEnd = buttonCss.indexOf("}", bodyStart);
+  return declarations(buttonCss.slice(bodyStart, bodyEnd));
 }
 
 const tokenValues = declarations(tokensCss);
@@ -85,11 +97,31 @@ function contrastRatio(foreground, background) {
 describe("visual tokens", () => {
   it("keeps literal product colors out of component CSS", () => {
     const literalColors =
-      baseCss.match(
+      `${baseCss}\n${buttonCss}`.match(
         /#[0-9a-f]{3,8}\b|(?:rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch)\s*\(|\b(?:white|black)\b(?!-)/gi,
       ) ?? [];
 
     expect(literalColors).toEqual([]);
+  });
+
+  it("keeps default buttons at the desktop touch target baseline", () => {
+    const rule = buttonRuleDeclarations(".app-button--default");
+
+    expect(rule.get("min-height")).toBe("42px");
+  });
+
+  it("keeps danger button contrast at 4.5:1 or higher", () => {
+    const rule = buttonRuleDeclarations(".app-button--danger");
+    const foreground = resolveToken(rule.get("color") ?? "");
+    const background = resolveToken(rule.get("background") ?? "");
+
+    expect(contrastRatio(foreground, background)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("removes button translation when reduced motion is requested", () => {
+    expect(buttonCss).toMatch(
+      /@media\s*\(prefers-reduced-motion:\s*reduce\)[\s\S]*\.app-button:hover:not\(:disabled\)[\s\S]*transform:\s*none/,
+    );
   });
 
   it("keeps compact task status text at the readable type baseline", () => {

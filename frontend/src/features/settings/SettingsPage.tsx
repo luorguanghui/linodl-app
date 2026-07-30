@@ -1,10 +1,11 @@
-import { FolderOpen, KeyRound, Settings2 } from "lucide-react";
+import { FolderOpen, Save, Settings2 } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 
 import type {
   DesktopSettingsDto,
   SaveSettingsDto,
 } from "../../api/types";
+import { AppButton } from "../../components/AppButton";
 import { useDesktopStore } from "../../store/desktop";
 import "../utility.css";
 
@@ -150,14 +151,15 @@ function SettingsView({ model }: { model: SettingsModel }) {
                 onChange={(event) => update("output_dir", event.target.value)}
               />
             </label>
-            <button
+            <AppButton
               className="utility-button"
-              type="button"
+              variant="secondary"
+              icon={FolderOpen}
               aria-label="选择输出目录"
               onClick={() => void chooseFor("output_dir")}
             >
-              <FolderOpen size={16} aria-hidden="true" /> 选择
-            </button>
+              选择
+            </AppButton>
           </div>
 
           <div className="settings-field-with-action settings-span">
@@ -169,14 +171,15 @@ function SettingsView({ model }: { model: SettingsModel }) {
                 onChange={(event) => update("profile_dir", event.target.value)}
               />
             </label>
-            <button
+            <AppButton
               className="utility-button"
-              type="button"
+              variant="secondary"
+              icon={FolderOpen}
               aria-label="选择浏览档案目录"
               onClick={() => void chooseFor("profile_dir")}
             >
-              <FolderOpen size={16} aria-hidden="true" /> 选择
-            </button>
+              选择
+            </AppButton>
           </div>
 
           <label className="utility-field">
@@ -310,14 +313,14 @@ function SettingsView({ model }: { model: SettingsModel }) {
         </div>
 
         <footer className="settings-actions">
-          <button
-            className="utility-button is-primary"
+          <AppButton
+            className="utility-button"
             type="submit"
-            disabled={saving}
+            icon={Save}
+            loading={saving}
           >
-            <KeyRound size={16} aria-hidden="true" />
             {saving ? "正在保存" : "保存设置"}
-          </button>
+          </AppButton>
         </footer>
       </form>
     </section>

@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { ExternalLink, ShieldCheck } from "lucide-react";
+import { ExternalLink, ScanSearch, ShieldCheck } from "lucide-react";
 
 import type { ProfileStatus } from "../../api/types";
+import { AppButton } from "../../components/AppButton";
 import { useDesktopStore } from "../../store/desktop";
 
 const profileLabels: Record<ProfileStatus, string> = {
@@ -55,14 +56,14 @@ export function ProfilePage() {
               "档案只会在你主动检查后标记为健康，目录存在并不代表可用。"}
           </p>
         </div>
-        <button
+        <AppButton
           className="profile-primary-action"
-          type="button"
+          icon={ScanSearch}
           disabled={operationPending}
           onClick={() => void checkProfile()}
         >
           检查浏览档案
-        </button>
+        </AppButton>
       </div>
 
       <div className="profile-manual-card">
@@ -82,15 +83,15 @@ export function ProfilePage() {
             onChange={(event) => setTargetUrl(event.target.value)}
           />
         </label>
-        <button
+        <AppButton
           className="profile-secondary-action"
-          type="button"
+          variant="secondary"
+          icon={ExternalLink}
           disabled={operationPending || !targetIsValid}
           onClick={() => void startManualVerification(targetUrl.trim())}
         >
-          <ExternalLink size={16} aria-hidden="true" />
           打开人工验证
-        </button>
+        </AppButton>
       </div>
     </section>
   );

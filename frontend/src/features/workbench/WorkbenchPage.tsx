@@ -1,7 +1,14 @@
-import { BookOpenCheck, LoaderCircle, Search, TriangleAlert } from "lucide-react";
+import {
+  BookOpenCheck,
+  Download,
+  LoaderCircle,
+  Search,
+  TriangleAlert,
+} from "lucide-react";
 import { useState } from "react";
 
 import type { BridgeErrorDto, OperationDto } from "../../api/types";
+import { AppButton } from "../../components/AppButton";
 import {
   useDesktopStore,
   type DesktopState,
@@ -356,9 +363,14 @@ function WorkbenchView({ model }: { model: WorkbenchModel }) {
             placeholder="输入作品名，或粘贴 linovelib.com 目录地址"
             disabled={busy}
           />
-          <button type="submit" disabled={busy}>
+          <AppButton
+            className="workbench-command-submit"
+            type="submit"
+            icon={Search}
+            loading={busy}
+          >
             查找作品
-          </button>
+          </AppButton>
         </div>
         <p
           className={`workbench-input-note${inputError ? " is-error" : ""}`}
@@ -404,8 +416,9 @@ function WorkbenchView({ model }: { model: WorkbenchModel }) {
                   已选择 <strong>{model.selectedVolumes?.length ?? 0}</strong>{" "}
                   卷
                 </p>
-                <button
-                  type="button"
+                <AppButton
+                  className="catalog-download-button"
+                  icon={Download}
                   disabled={(model.selectedVolumes?.length ?? 0) === 0}
                   onClick={() =>
                     void model.startDownload(
@@ -415,7 +428,7 @@ function WorkbenchView({ model }: { model: WorkbenchModel }) {
                   }
                 >
                   下载所选
-                </button>
+                </AppButton>
               </footer>
             </div>
           </div>
