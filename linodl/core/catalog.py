@@ -2,6 +2,7 @@
 
 import re
 import warnings
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from html import unescape
 
 from ..models.novel import Chapter, NovelInfo, Volume
@@ -92,6 +93,75 @@ def _suppress_requests_dependency_warning():
         pass
 
 
+def _fetch_volume_page_urls(vol_page_url: str) -> dict[str, str]:
+    """Return chapter URLs that the catalog masks behind javascript links."""
+    try:
+        import cloudscraper
+
+        scraper = cloudscraper.create_scraper()
+        resp = scraper.get(
+            vol_page_url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Accept-Language": "zh-CN,zh;q=0.9",
+            },
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            return {}
+        return {
+            unescape(re.sub(r"<[^>]+>", "", title)).strip(): url
+            for url, title in re.findall(
+                r'<a[^>]*href="(/novel/\d+/\d+\.html)"[^>]*>([^<]+)</a>',
+                resp.text,
+            )
+        }
+    except Exception:
+        return {}
+
+
+def _resolve_volume_page_urls(volume_page_urls: dict[int, str]) -> dict[int, dict[str, str]]:
+    """Resolve protected volume links concurrently, with a small site-friendly limit."""
+    if not volume_page_urls:
+        return {}
+
+    resolved: dict[int, dict[str, str]] = {}
+    with ThreadPoolExecutor(max_workers=min(4, len(volume_page_urls))) as executor:
+        futures = {
+            executor.submit(_fetch_volume_page_urls, page_url): volume_index
+            for volume_index, page_url in volume_page_urls.items()
+        }
+        for future in as_completed(futures):
+            volume_index = futures[future]
+            try:
+                resolved[volume_index] = future.result()
+            except Exception:
+                resolved[volume_index] = {}
+    return resolved
+
+
+def _infer_masked_chapter_urls(chapters: list[tuple[str, str]]) -> dict[str, str]:
+    """Recover a masked URL only when its two neighbouring chapter IDs agree."""
+    inferred = {}
+    for position, (url, raw_title) in enumerate(chapters):
+        if "javascript:" not in url or position == 0 or position == len(chapters) - 1:
+            continue
+        previous = re.fullmatch(r"/novel/(\d+)/(\d+)\.html", chapters[position - 1][0])
+        following = re.fullmatch(r"/novel/(\d+)/(\d+)\.html", chapters[position + 1][0])
+        if (
+            previous is None
+            or following is None
+            or previous.group(1) != following.group(1)
+            or int(following.group(2)) != int(previous.group(2)) + 2
+        ):
+            continue
+        title = unescape(re.sub(r"<[^>]+>", "", raw_title)).strip()
+        inferred[title] = (
+            f"/novel/{previous.group(1)}/{int(previous.group(2)) + 1}.html"
+        )
+    return inferred
+
+
 def parse_catalog(html: str):
     """Parse catalog HTML into (list[Volume], NovelInfo)."""
     novel_info = NovelInfo()
@@ -121,7 +191,10 @@ def parse_catalog(html: str):
 
     blocks = re.split(r'<div class="volume clearfix">', html)[1:]
 
-    for block in blocks:
+    volume_specs = []
+    volume_page_urls = {}
+
+    for volume_index, block in enumerate(blocks):
         vol_match = re.search(r"<h2[^>]*><a[^>]*>([^<]+)</a>", block)
         vol_name = sanitize(unescape(vol_match.group(1)).strip()) if vol_match else "Unknown"
 
@@ -134,36 +207,32 @@ def parse_catalog(html: str):
         novel_id_match = re.search(r'/novel/(\d+)/', block)
         novel_id = novel_id_match.group(1) if novel_id_match else None
 
-        # Check if this volume has javascript:cid(0) links that need URL resolution
         has_js_links = any("javascript:" in url for url, _ in chapters)
-
-        # If has JS links, fetch the volume page to get correct URLs
-        volume_page_urls = {}
-        if has_js_links and novel_id:
-            # Find the volume page URL
+        inferred_urls = _infer_masked_chapter_urls(chapters)
+        has_unresolved_js_links = any(
+            "javascript:" in url
+            and unescape(re.sub(r"<[^>]+>", "", title)).strip() not in inferred_urls
+            for url, title in chapters
+        )
+        if has_js_links and has_unresolved_js_links and novel_id:
             vol_page_match = re.search(r'/novel/\d+/(vol_\d+)\.html', block)
             if vol_page_match:
-                vol_page_url = f"https://www.linovelib.com/novel/{novel_id}/{vol_page_match.group(1)}.html"
-                try:
-                    import cloudscraper
-                    import time
-                    time.sleep(1)  # Avoid rate limiting
-                    scraper = cloudscraper.create_scraper()
-                    resp = scraper.get(vol_page_url, headers={
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                        "Accept-Language": "zh-CN,zh;q=0.9",
-                    }, timeout=15)
-                    if resp.status_code == 200:
-                        # Extract chapter URLs from volume page
-                        vol_chapters = re.findall(
-                            r'<a[^>]*href="(/novel/\d+/\d+\.html)"[^>]*>([^<]+)</a>',
-                            resp.text
-                        )
-                        for url, title in vol_chapters:
-                            title = unescape(re.sub(r"<[^>]+>", "", title)).strip()
-                            volume_page_urls[title] = url
-                except Exception:
-                    pass  # Fall back if volume page fetch fails
+                volume_page_urls[volume_index] = (
+                    f"https://www.linovelib.com/novel/{novel_id}/"
+                    f"{vol_page_match.group(1)}.html"
+                )
+
+        volume_specs.append((vol_name, chapters, inferred_urls))
+
+    resolved_volume_page_urls = _resolve_volume_page_urls(volume_page_urls)
+
+    for volume_index, (vol_name, chapters, inferred_urls) in enumerate(volume_specs):
+        volume = Volume(name=vol_name)
+        text_idx = 0
+        resolved_urls = {
+            **inferred_urls,
+            **resolved_volume_page_urls.get(volume_index, {}),
+        }
 
         for url, title in chapters:
             title = unescape(re.sub(r"<[^>]+>", "", title)).strip()
@@ -174,8 +243,8 @@ def parse_catalog(html: str):
             # Resolve javascript:cid(0) links
             if "javascript:" in url:
                 # Try to get URL from volume page first
-                if title in volume_page_urls:
-                    url = volume_page_urls[title]
+                if title in resolved_urls:
+                    url = resolved_urls[title]
                 else:
                     # Skip chapters that can't be resolved
                     volume.skipped_chapters.append({
