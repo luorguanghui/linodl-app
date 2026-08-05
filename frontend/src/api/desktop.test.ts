@@ -45,6 +45,10 @@ describe("desktop API", () => {
       ok: true,
       operation_id: "verify-1",
     });
+    const startRetry = vi.fn().mockResolvedValue({
+      ok: true,
+      operation_id: "retry-1",
+    });
     const startExport = vi.fn().mockResolvedValue({
       ok: true,
       operation_id: "export-1",
@@ -53,16 +57,19 @@ describe("desktop API", () => {
       api: {
         list_archives: listArchives,
         start_verify: startVerify,
+        start_retry: startRetry,
         start_export: startExport,
       },
     };
 
     await desktopApi.listArchives();
     await desktopApi.startVerify("作品 A");
+    await desktopApi.startRetry("verify-1");
     await desktopApi.startExport("作品 A", true);
 
     expect(listArchives).toHaveBeenCalledWith();
     expect(startVerify).toHaveBeenCalledWith("作品 A");
+    expect(startRetry).toHaveBeenCalledWith("verify-1");
     expect(startExport).toHaveBeenCalledWith("作品 A", true);
   });
 });

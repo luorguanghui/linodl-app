@@ -8,6 +8,10 @@ from ..models.novel import Chapter, NovelInfo, Volume
 from .browser import BASE_URL, BrowserSession, is_cloudflare_challenge
 
 
+class CatalogDirectFetchFailed(RuntimeError):
+    """Raised when a catalog needs the browser fallback."""
+
+
 def sanitize(name):
     return re.sub(r'[<>:"/\\|?*]', "_", name)
 
@@ -26,10 +30,9 @@ def normalize_catalog_url(url: str) -> str:
     return url
 
 
-def fetch_catalog(catalog_url: str, browser_session=None) -> str:
-    """Fetch catalog HTML, normalising the URL and falling back to the browser."""
+def fetch_catalog_direct(catalog_url: str) -> str:
+    """Fetch catalog HTML without starting a browser session."""
     catalog_url = normalize_catalog_url(catalog_url)
-
     try:
         _suppress_requests_dependency_warning()
         import cloudscraper
@@ -45,15 +48,28 @@ def fetch_catalog(catalog_url: str, browser_session=None) -> str:
         resp = scraper.get(catalog_url, headers=headers, timeout=30)
         if resp.status_code == 200 and not is_cloudflare_challenge(resp.text):
             return resp.text
-        if browser_session is None:
-            with BrowserSession(headless=True, anti_bot_mode="cloak") as session:
-                return _fetch_via_browser(catalog_url, session)
-    except Exception:
-        if browser_session is None:
-            with BrowserSession(headless=True, anti_bot_mode="cloak") as session:
-                return _fetch_via_browser(catalog_url, session)
+    except Exception as exc:
+        raise CatalogDirectFetchFailed("direct catalog request failed") from exc
+    raise CatalogDirectFetchFailed("direct catalog request was rejected")
 
-    return _fetch_via_browser(catalog_url, browser_session)
+
+def fetch_catalog_via_browser(catalog_url: str, session: BrowserSession) -> str:
+    """Fetch catalog HTML through an already-configured browser session."""
+    return _fetch_via_browser(normalize_catalog_url(catalog_url), session)
+
+
+def fetch_catalog(catalog_url: str, browser_session=None) -> str:
+    """Fetch catalog HTML, falling back to the browser when direct HTTP fails."""
+    try:
+        return fetch_catalog_direct(catalog_url)
+    except CatalogDirectFetchFailed:
+        pass
+
+    if browser_session is not None:
+        return fetch_catalog_via_browser(catalog_url, browser_session)
+
+    with BrowserSession(headless=True, anti_bot_mode="cloak") as session:
+        return fetch_catalog_via_browser(catalog_url, session)
 
 
 def _fetch_via_browser(catalog_url: str, session: BrowserSession) -> str:

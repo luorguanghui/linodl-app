@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -125,18 +126,73 @@ def _build_volume(
     guard: ArchivePathGuard,
 ) -> Volume:
     volume = Volume(name=name)
-    for source in _chapter_sources(path, guard):
+    sources = _chapter_sources(path, guard)
+    manifest_chapters = _load_manifest_chapters(path, guard)
+    if not manifest_chapters:
+        for source in sources:
+            volume.chapters.append(
+                Chapter(
+                    index=source.index,
+                    url="",
+                    title=source.title,
+                    is_illustration=False,
+                    volume_name=name,
+                    source_filename=source.filename,
+                )
+            )
+        if _validate_illustrations(path, guard):
+            volume.chapters.append(
+                Chapter(
+                    index=0,
+                    url="",
+                    title="插图",
+                    is_illustration=True,
+                    volume_name=name,
+                )
+            )
+        return volume
+
+    sources_by_canonical = {source.canonical_name: source for source in sources}
+    sources_by_filename = {source.filename: source for source in sources}
+    included_sources: set[str] = set()
+    has_illustration = False
+    for item in manifest_chapters:
+        index = item["index"]
+        title = item["title"]
+        is_illustration = item["is_illustration"]
+        source = None
+        if not is_illustration:
+            canonical_name = f"{index:03d}_{_UNSAFE_FILENAME.sub('_', title)}.txt"
+            source = sources_by_filename.get(item["filename"]) or sources_by_canonical.get(
+                canonical_name
+            )
+            if source is not None:
+                included_sources.add(source.filename)
         volume.chapters.append(
             Chapter(
-                index=source.index,
-                url="",
-                title=source.title,
-                is_illustration=False,
+                index=index,
+                url=item["url"],
+                title=title,
+                is_illustration=is_illustration,
                 volume_name=name,
-                source_filename=source.filename,
+                source_filename=source.filename if source is not None else "",
             )
         )
-    if _validate_illustrations(path, guard):
+        has_illustration = has_illustration or is_illustration
+
+    for source in sources:
+        if source.filename not in included_sources:
+            volume.chapters.append(
+                Chapter(
+                    index=source.index,
+                    url="",
+                    title=source.title,
+                    is_illustration=False,
+                    volume_name=name,
+                    source_filename=source.filename,
+                )
+            )
+    if not has_illustration and _validate_illustrations(path, guard):
         volume.chapters.append(
             Chapter(
                 index=0,
@@ -147,6 +203,45 @@ def _build_volume(
             )
         )
     return volume
+
+
+def _load_manifest_chapters(path: Path, guard: ArchivePathGuard) -> list[dict]:
+    manifest_path = path / "_catalog.json"
+    if not manifest_path.is_file():
+        return []
+    try:
+        resolved = guard.resolve(manifest_path)
+        with resolved.open("r", encoding="utf-8") as manifest_file:
+            manifest = json.load(manifest_file)
+    except (OSError, ValueError, UnsafeArchivePath):
+        return []
+    chapters = manifest.get("chapters") if isinstance(manifest, dict) else None
+    if not isinstance(chapters, list):
+        return []
+
+    loaded = []
+    for item in chapters:
+        if not isinstance(item, dict):
+            continue
+        index = item.get("index")
+        title = item.get("title")
+        if isinstance(index, bool) or not isinstance(index, int):
+            continue
+        if not isinstance(title, str) or not title:
+            continue
+        is_illustration = item.get("is_illustration") is True
+        if index < 0 or (index == 0 and not is_illustration):
+            continue
+        loaded.append(
+            {
+                "index": index,
+                "title": title,
+                "url": item.get("url") if isinstance(item.get("url"), str) else "",
+                "is_illustration": is_illustration,
+                "filename": item.get("filename") if isinstance(item.get("filename"), str) else "",
+            }
+        )
+    return loaded
 
 
 def _chapter_sources(

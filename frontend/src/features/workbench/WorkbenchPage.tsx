@@ -2,6 +2,7 @@ import {
   BookOpenCheck,
   Download,
   LoaderCircle,
+  RefreshCw,
   Search,
   TriangleAlert,
 } from "lucide-react";
@@ -42,6 +43,18 @@ interface DownloadSummary {
   output_dir?: string;
 }
 
+interface VerificationIssue {
+  chapter_title?: string;
+  chapter_url?: string;
+  detail?: string;
+}
+
+interface VerificationSummary {
+  issue_count?: number;
+  is_clean?: boolean;
+  issues?: VerificationIssue[];
+}
+
 export interface WorkbenchModel {
   state: WorkbenchViewState;
   operationKind?: WorkbenchOperationKind | null;
@@ -50,7 +63,10 @@ export interface WorkbenchModel {
   novel?: CatalogNovel;
   volumes?: CatalogVolume[];
   selectedVolumes?: string[];
+  operationId?: string;
+  retryPending?: boolean;
   download?: DownloadSummary;
+  verification?: VerificationSummary;
   error?: WorkbenchFailure;
   search(query: string): void | Promise<void>;
   loadCatalog(url: string): void | Promise<void>;
@@ -58,6 +74,7 @@ export interface WorkbenchModel {
     catalogOperationId: string,
     selectedVolumes: string[],
   ): void | Promise<void>;
+  startRetry(operationId: string): void | Promise<void>;
   toggleVolume(volumeName: string): void;
 }
 
@@ -72,7 +89,7 @@ type WorkbenchSnapshot = Pick<
   | "activeOperationKind"
   | "selectedVolumes"
   | "notice"
->;
+> & { pendingRetryOperationIds?: string[] };
 
 const invalidSourceMessage =
   "目前仅支持 linovelib.com 的作品或目录链接。";
@@ -150,17 +167,41 @@ function toDownloadSummary(value: unknown): DownloadSummary | undefined {
   };
 }
 
+function toVerificationSummary(value: unknown): VerificationSummary | undefined {
+  if (!Array.isArray(value) || !isRecord(value[1])) return undefined;
+  const candidate = value[1];
+  return {
+    issue_count: count(candidate.issue_count),
+    is_clean: candidate.is_clean === true,
+    issues: Array.isArray(candidate.issues)
+      ? candidate.issues.flatMap((issue) =>
+          isRecord(issue)
+            ? [{
+                chapter_title: text(issue.chapter_title),
+                chapter_url: text(issue.chapter_url),
+                detail: text(issue.detail),
+              }]
+            : [],
+        )
+      : [],
+  };
+}
+
 function operationFailure(operation: OperationDto): WorkbenchFailure {
-  const labels: Record<WorkbenchOperationKind, string> = {
+  const labels: Record<Exclude<WorkbenchOperationKind, "retry">, string> = {
     search: "作品检索失败。",
     catalog: "目录读取失败。",
     download: "下载未能完成。",
+  };
+  const labelsWithRetry: Record<WorkbenchOperationKind, string> = {
+    ...labels,
+    retry: "Retry did not complete.",
   };
   const kind = isWorkbenchOperationKind(operation.kind)
     ? operation.kind
     : "search";
   return {
-    message: labels[kind],
+    message: labelsWithRetry[kind],
     action: "查看任务状态，调整输入后重试。",
     detail: operation.error || operation.detail || undefined,
   };
@@ -176,14 +217,14 @@ function noticeFailure(notice: BridgeErrorDto): WorkbenchFailure {
 function isWorkbenchOperationKind(
   value: string | null | undefined,
 ): value is WorkbenchOperationKind {
-  return value === "search" || value === "catalog" || value === "download";
+  return value === "search" || value === "catalog" || value === "download" || value === "retry";
 }
 
 export function deriveWorkbenchModel(
   snapshot: WorkbenchSnapshot,
   actions: Pick<
     WorkbenchModel,
-    "search" | "loadCatalog" | "startDownload" | "toggleVolume"
+    "search" | "loadCatalog" | "startDownload" | "startRetry" | "toggleVolume"
   >,
 ): WorkbenchModel {
   const operation = snapshot.activeOperationId
@@ -203,7 +244,7 @@ export function deriveWorkbenchModel(
   }
 
   if (!operation) {
-    if (operationKind === "download") {
+    if (operationKind === "download" || operationKind === "retry") {
       return { ...actions, state: "downloading", operationKind };
     }
     if (operationKind === "search" || operationKind === "catalog") {
@@ -224,7 +265,7 @@ export function deriveWorkbenchModel(
   if (operation.status === "running") {
     return {
       ...actions,
-      state: operationKind === "download" ? "downloading" : "searching",
+      state: operationKind === "download" || operationKind === "retry" ? "downloading" : "searching",
       operationKind,
     };
   }
@@ -255,7 +296,10 @@ export function deriveWorkbenchModel(
     ...actions,
     state: "completed",
     operationKind,
+    operationId: operation.id,
+    retryPending: snapshot.pendingRetryOperationIds?.includes(operation.id) ?? false,
     download: toDownloadSummary(operation.result),
+    verification: toVerificationSummary(operation.result),
   };
 }
 
@@ -269,9 +313,13 @@ function ConnectedWorkbenchPage() {
   );
   const selectedVolumes = useDesktopStore((state) => state.selectedVolumes);
   const notice = useDesktopStore((state) => state.notice);
+  const pendingRetryOperationIds = useDesktopStore(
+    (state) => state.pendingRetryOperationIds,
+  );
   const search = useDesktopStore((state) => state.search);
   const loadCatalog = useDesktopStore((state) => state.loadCatalog);
   const startDownload = useDesktopStore((state) => state.startDownload);
+  const startRetry = useDesktopStore((state) => state.startRetry);
   const toggleVolume = useDesktopStore((state) => state.toggleVolume);
 
   const model = deriveWorkbenchModel(
@@ -281,8 +329,9 @@ function ConnectedWorkbenchPage() {
       activeOperationKind,
       selectedVolumes,
       notice,
+      pendingRetryOperationIds,
     },
-    { search, loadCatalog, startDownload, toggleVolume },
+    { search, loadCatalog, startDownload, startRetry, toggleVolume },
   );
 
   return <WorkbenchView model={model} />;
@@ -440,7 +489,13 @@ function WorkbenchView({ model }: { model: WorkbenchModel }) {
           />
         ) : null}
         {model.state === "completed" ? (
-          <CompletedState summary={model.download} />
+          <CompletedState
+            summary={model.download}
+            verification={model.verification}
+            operationId={model.operationId}
+            retryPending={model.retryPending}
+            onRetry={model.startRetry}
+          />
         ) : null}
         {model.state === "failed" ? (
           <FailureState error={model.error} />
@@ -488,7 +543,22 @@ function WorkbenchProgress({
   );
 }
 
-function CompletedState({ summary }: { summary?: DownloadSummary }) {
+function CompletedState({
+  summary,
+  verification,
+  operationId,
+  retryPending,
+  onRetry,
+}: {
+  summary?: DownloadSummary;
+  verification?: VerificationSummary;
+  operationId?: string;
+  retryPending?: boolean;
+  onRetry: (operationId: string) => void | Promise<void>;
+}) {
+  const issues = verification?.issues ?? [];
+  const retryableIssues = issues.filter((issue) => Boolean(issue.chapter_url));
+  const unretryableIssueCount = issues.length - retryableIssues.length;
   return (
     <section className="workbench-completed" aria-live="polite">
       <span className="workbench-state-icon" aria-hidden="true">
@@ -503,6 +573,32 @@ function CompletedState({ summary }: { summary?: DownloadSummary }) {
         </p>
         {summary?.output_dir ? (
           <p className="workbench-output">输出位置：{summary.output_dir}</p>
+        ) : null}
+        {issues.length ? (
+          <>
+            <p>校验发现 {verification?.issue_count ?? issues.length} 项问题。</p>
+            <ul className="verification-issue-list">
+              {issues.map((issue, index) => (
+                <li key={`${issue.chapter_title}-${index}`}>
+                  {issue.chapter_title || "未命名章节"}
+                  {issue.detail ? `：${issue.detail}` : ""}
+                </li>
+              ))}
+            </ul>
+            {unretryableIssueCount ? (
+              <p>{unretryableIssueCount} 项问题无法自动重试。</p>
+            ) : null}
+            {retryableIssues.length && operationId ? (
+              <AppButton
+                aria-label="Retry recoverable issues"
+                icon={RefreshCw}
+                disabled={retryPending}
+                onClick={() => void onRetry(operationId)}
+              >
+                重试全部可恢复问题
+              </AppButton>
+            ) : null}
+          </>
         ) : null}
       </div>
     </section>
