@@ -6,6 +6,95 @@ import types
 import pytest
 
 
+def test_catalog_worker_skips_browser_when_direct_fetch_succeeds(monkeypatch):
+    """A healthy HTTP catalog response must not pay browser startup cost."""
+    import linodl.gui.workers as workers_module
+
+    messages = queue.Queue()
+    direct_calls = []
+
+    def direct_fetch(url):
+        direct_calls.append(url)
+        return "<html>catalog</html>"
+
+    class BrowserMustNotStart:
+        def __init__(self, *args, **kwargs):
+            raise AssertionError("browser must not start for a direct catalog response")
+
+    monkeypatch.setattr(workers_module, "fetch_catalog_direct", direct_fetch)
+    monkeypatch.setattr(workers_module, "BrowserSession", BrowserMustNotStart)
+    monkeypatch.setattr(
+        workers_module,
+        "parse_catalog",
+        lambda html: (["volume"], "novel"),
+    )
+    worker = workers_module.CatalogWorker(
+        "https://www.linovelib.com/novel/1/catalog",
+        types.SimpleNamespace(),
+        messages,
+    )
+
+    worker.run()
+
+    result = next(data for event, data, _ in list(messages.queue) if event == "result")
+    assert direct_calls == ["https://www.linovelib.com/novel/1/catalog"]
+    assert result == (["volume"], "novel")
+
+
+def test_catalog_worker_uses_browser_fallback_after_direct_fetch_failure(monkeypatch):
+    """Cloudflare and network failures retain the configured browser path."""
+    import linodl.gui.workers as workers_module
+
+    messages = queue.Queue()
+    sessions = []
+
+    class BrowserSessionDouble:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.started = False
+            self.closed = False
+            sessions.append(self)
+
+        def start(self):
+            self.started = True
+
+        def close(self):
+            self.closed = True
+
+    def direct_fetch(_url):
+        raise workers_module.CatalogDirectFetchFailed("challenge")
+
+    monkeypatch.setattr(workers_module, "fetch_catalog_direct", direct_fetch)
+    monkeypatch.setattr(workers_module, "BrowserSession", BrowserSessionDouble)
+    monkeypatch.setattr(
+        workers_module,
+        "fetch_catalog_via_browser",
+        lambda url, session: "<html>catalog</html>",
+    )
+    monkeypatch.setattr(
+        workers_module,
+        "parse_catalog",
+        lambda html: (["volume"], "novel"),
+    )
+    worker = workers_module.CatalogWorker(
+        "https://www.linovelib.com/novel/1/catalog",
+        types.SimpleNamespace(
+            headless=True,
+            anti_bot_mode="cloak",
+            proxy="",
+            geoip=False,
+            profile_dir="profile",
+        ),
+        messages,
+    )
+
+    worker.run()
+
+    assert len(sessions) == 1
+    assert sessions[0].started is True
+    assert sessions[0].closed is True
+
+
 def test_task_snapshot_survives_failure():
     from linodl.gui.tasks import (
         TaskInputSnapshot,
@@ -68,6 +157,22 @@ def test_task_store_versioned_snapshot_is_detached_from_future_changes():
 
     assert before[0].status is TaskStatus.QUEUED
     assert before[0].progress == 0.0
+
+
+def test_download_progress_message_updates_the_task_progress_ratio():
+    """Desktop task snapshots must reflect the downloader's [current/total] updates."""
+    from linodl.gui.tasks import TaskStatus, TaskStore
+    from linodl.gui.workers import BackgroundWorker
+
+    store = TaskStore()
+    worker = BackgroundWorker(queue.Queue(), task_store_instance=store)
+    store.transition(worker.task.id, TaskStatus.RUNNING, "downloading")
+
+    worker.report_progress("[3/12] [Volume 1] Chapter 3...")
+
+    task = store.get(worker.task.id)
+    assert task.detail == "[3/12] [Volume 1] Chapter 3..."
+    assert task.progress == 0.25
 
 
 def test_worker_cancel_only_finishes_after_thread_exits():

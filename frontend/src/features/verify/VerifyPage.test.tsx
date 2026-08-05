@@ -87,4 +87,49 @@ describe("VerifyPage", () => {
     expect(screen.getByText("缺失章节")).toBeVisible();
     expect(screen.getByText("未找到章节文件")).toBeVisible();
   });
+
+  it("retries all recoverable verification issues", () => {
+    const startRetry = vi.fn();
+    render(
+      <VerifyPage
+        model={{
+          archives: [],
+          outputDir: "C:\\books",
+          loadArchives: vi.fn(),
+          chooseDirectory: vi.fn(),
+          startVerify: vi.fn(),
+          startRetry,
+          operation: {
+            id: "verify-1",
+            kind: "verify",
+            task_id: "task-1",
+            status: "completed",
+            detail: "",
+            result: {},
+            error: "",
+          },
+          verification: {
+            issue_count: 2,
+            is_clean: false,
+            issues: [
+              {
+                chapter_title: "recoverable chapter",
+                chapter_url: "/novel/1/1.html",
+                issue: "missing",
+              },
+              {
+                chapter_title: "legacy chapter",
+                issue: "missing",
+              },
+            ],
+          },
+        } as never}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry recoverable issues" }));
+
+    expect(startRetry).toHaveBeenCalledWith("verify-1");
+    expect(screen.getByText(/无法自动重试/)).toBeVisible();
+  });
 });

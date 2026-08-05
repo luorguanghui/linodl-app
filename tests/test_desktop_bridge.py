@@ -26,6 +26,7 @@ class FakeController:
         self.restarted_task = None
         self.focused_task = None
         self.drained = 0
+        self.retry_operation_id = None
 
     def start(self, kind, **payload):
         self.last = (kind, payload)
@@ -53,6 +54,10 @@ class FakeController:
     def focus_verification(self, task_id):
         self.focused_task = task_id
         return True
+
+    def retry(self, operation_id):
+        self.retry_operation_id = operation_id
+        return "op-retry"
 
 
 class FakeProfileService:
@@ -146,6 +151,16 @@ def test_bridge_starts_injected_profile_operations_without_real_browser(tmp_path
     }
     assert profile_service.checked == 1
     assert profile_service.manual_target == "https://www.linovelib.com/novel/1"
+
+
+def test_bridge_starts_retry_for_a_completed_operation(tmp_path):
+    controller = FakeController()
+    bridge = make_bridge(tmp_path, controller)
+
+    result = bridge.start_retry("verify-operation")
+
+    assert result == {"ok": True, "operation_id": "op-retry"}
+    assert controller.retry_operation_id == "verify-operation"
 
 
 @pytest.mark.parametrize(

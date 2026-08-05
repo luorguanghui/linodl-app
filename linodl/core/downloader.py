@@ -715,10 +715,6 @@ class Downloader:
         self._force_chapters.clear()
 
         for issue in verification.issues:
-            # catalog_gap issues can't be retried - they need a fresh catalog re-parse
-            if issue.issue == "catalog_gap":
-                continue
-
             vol_dir = os.path.join(self.output_dir, issue.volume_name)
             img_dir = os.path.join(vol_dir, "插图")
             is_illus = issue.chapter_title == "插图" or issue.chapter_index == 0
@@ -771,26 +767,6 @@ class Downloader:
             if vol.name not in selected_volume_names:
                 continue
             vol_dir = os.path.join(self.output_dir, vol.name)
-
-            # Compare against saved catalog manifest (detects missing chapters)
-            manifest = self._load_catalog_manifest(vol_dir)
-            if manifest:
-                actual_files = set(f for f in os.listdir(vol_dir) if f.endswith(".txt")) if os.path.isdir(vol_dir) else set()
-                for mch in manifest["chapters"]:
-                    fname = mch.get("filename")
-                    if fname and fname not in actual_files:
-                        # Check if a file with the same index exists (title may have been sanitized differently)
-                        idx_prefix = f"{mch['index']:03d}_"
-                        has_same_idx = any(f.startswith(idx_prefix) for f in actual_files)
-                        if not has_same_idx:
-                            result.issues.append(ChapterIssue(
-                                volume_name=vol.name,
-                                chapter_index=mch["index"],
-                                chapter_title=mch["title"],
-                                chapter_url=mch.get("url", ""),
-                                issue="catalog_gap",
-                                detail=f"文件缺失(目录记录存在): {mch['title']}",
-                            ))
 
             for ch in vol.chapters:
                 result.total_expected += 1
