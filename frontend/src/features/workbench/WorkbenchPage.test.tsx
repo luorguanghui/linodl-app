@@ -7,6 +7,7 @@ const actions = {
   search: vi.fn(),
   loadCatalog: vi.fn(),
   startDownload: vi.fn(),
+  startRetry: vi.fn(),
   toggleVolume: vi.fn(),
 };
 
@@ -192,6 +193,35 @@ describe("WorkbenchPage", () => {
     );
 
     expect(screen.getByRole("button", { name: "下载所选" })).toBeDisabled();
+  });
+
+  it("offers retry for recoverable issues after a download completes", () => {
+    const startRetry = vi.fn();
+    render(
+      <WorkbenchPage
+        model={{
+          ...actions,
+          state: "completed",
+          operationId: "download-1",
+          startRetry,
+          download: { novel_title: "Book A", success: 1 },
+          verification: {
+            issue_count: 1,
+            is_clean: false,
+            issues: [
+              {
+                chapter_title: "Missing chapter",
+                chapter_url: "/novel/1/1.html",
+              },
+            ],
+          },
+        } as never}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry recoverable issues" }));
+
+    expect(startRetry).toHaveBeenCalledWith("download-1");
   });
 
   it("shows actionable failures while keeping technical details collapsed", () => {

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import queue
 import zipfile
+import json
 from pathlib import Path
 
 import pytest
@@ -50,6 +51,44 @@ def test_scan_archives_counts_only_direct_volume_chapters(tmp_path):
 
     assert archive["volume_count"] == 1
     assert archive["chapter_count"] == 1
+
+
+def test_load_archive_restores_missing_manifest_chapter_for_retry(tmp_path):
+    output_dir = tmp_path / "output"
+    volume_dir = output_dir / "Book A" / "Volume 1"
+    volume_dir.mkdir(parents=True)
+    (volume_dir / "_catalog.json").write_text(
+        json.dumps(
+            {
+                "volume_name": "Volume 1",
+                "chapters": [
+                    {
+                        "index": 3,
+                        "title": "Missing chapter",
+                        "url": "/novel/1/3.html",
+                        "is_illustration": False,
+                        "filename": "003_Missing chapter.txt",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    _, volumes, base_dir = load_archive(output_dir / "Book A", output_dir)
+    chapter = volumes[0].chapters[0]
+    messages = queue.Queue()
+    worker = VerifyWorker(volumes, {"Volume 1"}, str(base_dir), messages)
+    worker.run()
+    result = next(data for event, data, _ in list(messages.queue) if event == "result")
+
+    assert (chapter.index, chapter.title, chapter.url) == (
+        3,
+        "Missing chapter",
+        "/novel/1/3.html",
+    )
+    assert result.issues[0].issue == "missing"
+    assert result.issues[0].chapter_url == "/novel/1/3.html"
 
 
 def test_scan_archives_skips_directory_symlinks_outside_output(tmp_path):

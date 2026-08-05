@@ -7,7 +7,12 @@ import weakref
 from ..config.manager import ConfigManager
 from ..core.browser import BASE_URL, BrowserSession, is_cloudflare_challenge
 from ..core.search import SearchEngine
-from ..core.catalog import fetch_catalog, parse_catalog
+from ..core.catalog import (
+    CatalogDirectFetchFailed,
+    fetch_catalog_direct,
+    fetch_catalog_via_browser,
+    parse_catalog,
+)
 from ..core.auth import login, check_logged_in
 from ..core.downloader import DownloadCancelled, Downloader, sanitize
 from ..core.epub import EpubExporter
@@ -235,19 +240,23 @@ class CatalogWorker(BackgroundWorker):
         session = None
         try:
             self.report_progress("正在获取目录...")
-            session = BrowserSession(
-                headless=self.config.headless,
-                anti_bot_mode=self.config.anti_bot_mode,
-                proxy=self.config.proxy,
-                geoip=self.config.geoip,
-                profile_dir=self.config.profile_dir,
-                progress_callback=self.report_progress,
-                cancel_event=self._cancel_flag,
-                profile_wait_callback=self.report_profile_wait,
-                verification_callback=self.verify_challenge,
-            )
-            session.start()
-            html = fetch_catalog(self.url, browser_session=session)
+            try:
+                html = fetch_catalog_direct(self.url)
+            except CatalogDirectFetchFailed:
+                self.report_progress("直连目录失败，正在启动浏览器重试...")
+                session = BrowserSession(
+                    headless=self.config.headless,
+                    anti_bot_mode=self.config.anti_bot_mode,
+                    proxy=self.config.proxy,
+                    geoip=self.config.geoip,
+                    profile_dir=self.config.profile_dir,
+                    progress_callback=self.report_progress,
+                    cancel_event=self._cancel_flag,
+                    profile_wait_callback=self.report_profile_wait,
+                    verification_callback=self.verify_challenge,
+                )
+                session.start()
+                html = fetch_catalog_via_browser(self.url, session)
             volumes, novel_info = parse_catalog(html)
             self.report_result((volumes, novel_info))
         except Exception as e:
@@ -352,7 +361,8 @@ class DownloadWorker(BackgroundWorker):
 class RetryWorker(BackgroundWorker):
     def __init__(
         self, downloader: Downloader, volumes, selected_volume_names,
-        novel_info, config: ConfigManager, message_queue: queue.Queue, owner=None
+        novel_info, config: ConfigManager, message_queue: queue.Queue, owner=None,
+        *, verification=None,
     ):
         super().__init__(
             message_queue,
@@ -370,11 +380,15 @@ class RetryWorker(BackgroundWorker):
         self.selected_volume_names = selected_volume_names
         self.novel_info = novel_info
         self.config = config
+        self.verification = verification
 
     def run(self):
         session = None
         try:
             self.downloader.cancel_callback = self.is_cancelled
+            self.downloader.progress_callback = self.report_progress
+            if self.verification is not None:
+                self.downloader.prepare_retry(self.verification)
             self.report_progress("正在启动浏览器用于重试...")
             session = BrowserSession(
                 headless=self.config.headless,

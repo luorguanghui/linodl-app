@@ -14,6 +14,8 @@ from .controller import (
     CatalogOperationNotFound,
     CatalogReloadRequired,
     DesktopController,
+    NoRetryableIssues,
+    RetrySourceNotFound,
     TaskInputNotFound,
     UnsupportedTaskInput,
 )
@@ -184,7 +186,7 @@ class DesktopBridge:
                 "请刷新归档列表后重试。",
             )
         try:
-            _, volumes, base_dir = load_archive(
+            novel_info, volumes, base_dir = load_archive(
                 archive["path"],
                 self._config.output_dir,
             )
@@ -205,7 +207,38 @@ class DesktopBridge:
             volumes=volumes,
             selected_volumes=[volume.name for volume in volumes],
             output_dir=str(base_dir),
+            novel_info=novel_info,
         )
+
+    def start_retry(self, operation_id: str) -> dict:
+        normalized = str(operation_id or "").strip()
+        if not normalized:
+            return self._error(
+                "INVALID_OPERATION",
+                "校验结果无效。",
+                "请重新运行校验后再试。",
+            )
+        try:
+            retry_operation_id = self._controller.retry(normalized)
+        except RetrySourceNotFound:
+            return self._error(
+                "RETRY_NOT_AVAILABLE",
+                "该校验结果无法重试。",
+                "请重新运行校验，或重新读取作品目录后下载。",
+            )
+        except NoRetryableIssues:
+            return self._error(
+                "NO_RETRYABLE_ISSUES",
+                "没有可自动重试的问题。",
+                "缺少下载地址的旧归档需要重新读取目录或手动处理。",
+            )
+        except Exception:
+            return self._error(
+                "RETRY_START_FAILED",
+                "无法启动重试任务。",
+                "请稍后再试。",
+            )
+        return {"ok": True, "operation_id": retry_operation_id}
 
     def start_export(self, archive_id: str, per_volume: bool = True) -> dict:
         archive = self._archive_for_id(archive_id)

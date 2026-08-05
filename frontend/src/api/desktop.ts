@@ -69,6 +69,7 @@ export interface DesktopApi {
   startManualVerification(targetUrl: string): Promise<BridgeCommandResult>;
   listArchives(): Promise<BridgeArchiveListResult>;
   startVerify(archiveId: string): Promise<BridgeOperationResult>;
+  startRetry(operationId: string): Promise<BridgeOperationResult>;
   startExport(
     archiveId: string,
     perVolume: boolean,
@@ -126,6 +127,9 @@ export const desktopApi: DesktopApi = {
   },
   startVerify(archiveId) {
     return invoke<BridgeOperationResult>("start_verify", archiveId);
+  },
+  startRetry(operationId) {
+    return invoke<BridgeOperationResult>("start_retry", operationId);
   },
   startExport(archiveId, perVolume) {
     return invoke<BridgeOperationResult>(
