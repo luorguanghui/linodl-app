@@ -28,6 +28,30 @@ def test_search_tries_direct_form_before_rank_and_listing(monkeypatch):
     assert [(r.title, r.novel_id) for r in results] == [("Direct Hit", "1")]
 
 
+def test_search_rejects_stale_browser_form_results_before_falling_back(monkeypatch):
+    """A reused browser page must not make a new query display the old novel."""
+    engine = SearchEngine()
+    calls = []
+
+    monkeypatch.setattr(
+        engine,
+        "_try_browser_form",
+        lambda keyword: calls.append("form") or '<a href="/novel/1.html">Old Novel</a>',
+    )
+    monkeypatch.setattr(
+        engine,
+        "_try_cloudscraper_post",
+        lambda keyword: calls.append("direct") or '<a href="/novel/2.html">New Novel</a>',
+    )
+
+    results = engine.search("New")
+
+    assert calls == ["form", "direct"]
+    assert [(result.title, result.novel_id) for result in results] == [
+        ("New Novel", "2"),
+    ]
+
+
 def test_filter_results_by_keyword_returns_only_title_matches():
     engine = SearchEngine()
     results = [

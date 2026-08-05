@@ -29,8 +29,9 @@ class SearchEngine:
         html = self._try_browser_form(keyword)
         if html:
             results = self._parse_results(html)
-            if results:
-                return results
+            matching = self._filter_results_by_keyword(results, keyword)
+            if matching:
+                return matching
 
         self._log("Trying cloudscraper direct search...")
         html = self._try_cloudscraper_post(keyword)
