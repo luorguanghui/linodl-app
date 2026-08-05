@@ -24,6 +24,7 @@ from .verification import VerificationService
 verification_service = VerificationService()
 _worker_registry_lock = threading.RLock()
 _worker_registry = weakref.WeakValueDictionary()
+_DOWNLOAD_PROGRESS_PATTERN = re.compile(r"\[(\d+)/(\d+)\]")
 
 
 def cancel_task(task_id: str) -> bool:
@@ -110,10 +111,15 @@ class BackgroundWorker(threading.Thread):
             TaskStatus.RUNNING,
             TaskStatus.WAITING_FOR_PROFILE,
         }:
+            match = _DOWNLOAD_PROGRESS_PATTERN.search(msg)
+            progress = None
+            if match and int(match.group(2)) > 0:
+                progress = int(match.group(1)) / int(match.group(2))
             self._task_store.transition(
                 self._task_id,
                 TaskStatus.RUNNING,
                 msg,
+                progress=progress,
             )
         self._queue.put(("progress", msg, self._owner))
 

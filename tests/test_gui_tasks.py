@@ -159,6 +159,22 @@ def test_task_store_versioned_snapshot_is_detached_from_future_changes():
     assert before[0].progress == 0.0
 
 
+def test_download_progress_message_updates_the_task_progress_ratio():
+    """Desktop task snapshots must reflect the downloader's [current/total] updates."""
+    from linodl.gui.tasks import TaskStatus, TaskStore
+    from linodl.gui.workers import BackgroundWorker
+
+    store = TaskStore()
+    worker = BackgroundWorker(queue.Queue(), task_store_instance=store)
+    store.transition(worker.task.id, TaskStatus.RUNNING, "downloading")
+
+    worker.report_progress("[3/12] [Volume 1] Chapter 3...")
+
+    task = store.get(worker.task.id)
+    assert task.detail == "[3/12] [Volume 1] Chapter 3..."
+    assert task.progress == 0.25
+
+
 def test_worker_cancel_only_finishes_after_thread_exits():
     from linodl.gui.tasks import TaskStatus
     from linodl.gui.workers import BackgroundWorker
