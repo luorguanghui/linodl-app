@@ -17,6 +17,26 @@ HEADERS = {
     "Referer": f"{BASE_URL}/",
 }
 
+# Cloak's normal "careful" interaction profile is useful for page navigation,
+# but waiting 1–2 seconds before a short, app-initiated search query is needless.
+# These settings only affect the search input itself; the Cloak browser's
+# fingerprinting, mouse interaction and real key events are still used.
+_CLOAK_SEARCH_HUMAN_CONFIG = {
+    "field_switch_delay": (0, 0),
+    "typing_delay": 15,
+    "typing_delay_spread": 0,
+    "typing_pause_chance": 0,
+    "key_hold": (5, 10),
+    "mistype_chance": 0,
+    "idle_between_actions": False,
+    "mouse_min_steps": 4,
+    "mouse_max_steps": 8,
+    "mouse_overshoot_chance": 0,
+    "mouse_burst_pause": (2, 5),
+    "click_aim_delay_input": (5, 15),
+    "click_hold_input": (5, 15),
+}
+
 
 class SearchEngine:
     def __init__(self, debug: bool = False, browser_session: BrowserSession | None = None):
@@ -214,8 +234,12 @@ class SearchEngine:
             try:
                 loc = session.page.locator(sel)
                 loc.wait_for(state="visible", timeout=3000)
-                loc.click()
-                loc.fill(keyword)
+                # Cloak's patched fill focuses the field itself. Clicking first
+                # performs that humanized mouse action twice and delays typing.
+                fill_options = {}
+                if getattr(session, "engine", "") == "cloak":
+                    fill_options["human_config"] = dict(_CLOAK_SEARCH_HUMAN_CONFIG)
+                loc.fill(keyword, **fill_options)
                 submit = session.page.locator(
                     'form[name="t_frmsearch"] input[type="submit"], input.search-btn'
                 )

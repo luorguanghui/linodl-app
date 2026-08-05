@@ -2,6 +2,62 @@ from linodl.core.search import SearchEngine
 from linodl.models.novel import NovelInfo
 
 
+class _SearchInput:
+    def __init__(self):
+        self.clicks = 0
+        self.filled_value = None
+        self.fill_options = None
+
+    def wait_for(self, **kwargs):
+        return None
+
+    def click(self, **kwargs):
+        self.clicks += 1
+
+    def fill(self, value, **kwargs):
+        self.filled_value = value
+        self.fill_options = kwargs
+
+
+class _SearchSubmit:
+    @property
+    def first(self):
+        return self
+
+    def click(self, **kwargs):
+        return None
+
+
+class _SearchFormPage:
+    def __init__(self):
+        self.input = _SearchInput()
+        self.submit = _SearchSubmit()
+
+    def locator(self, selector):
+        if "searchkey" in selector:
+            return self.input
+        return self.submit
+
+
+class _CloakSearchFormSession:
+    engine = "cloak"
+
+    def __init__(self):
+        self.page = _SearchFormPage()
+
+
+def test_cloak_search_fills_the_form_without_an_extra_slow_click():
+    """Cloak fill already focuses the field, so a second humanized click delays typing."""
+    session = _CloakSearchFormSession()
+
+    assert SearchEngine()._submit_search_form(session, "test title")
+    assert session.page.input.filled_value == "test title"
+    assert session.page.input.clicks == 0
+    config = session.page.input.fill_options["human_config"]
+    assert config["field_switch_delay"] == (0, 0)
+    assert config["typing_pause_chance"] == 0
+
+
 def test_search_tries_direct_form_before_rank_and_listing(monkeypatch):
     engine = SearchEngine()
     calls = []
