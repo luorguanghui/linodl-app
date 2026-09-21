@@ -1,0 +1,61 @@
+name: Build and publish Windows release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and publish
+        required: true
+        default: v2.0.0
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build Windows application
+        shell: cmd
+        run: build_exe.bat
+
+      - name: Package release assets
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          $version = $env:RELEASE_TAG.TrimStart('v')
+          $archive = "linodl-v$version-windows-x64.zip"
+          tar.exe -a -c -f $archive -C release linodl/linodl.exe linodl/_internal
+          $hash = (Get-FileHash $archive -Algorithm SHA256).Hash
+          "$hash  $archive" | Set-Content "$archive.sha256" -Encoding ascii
+          "ARCHIVE=$archive" >> $env:GITHUB_ENV
+          "CHECKSUM=$archive.sha256" >> $env:GITHUB_ENV
+
+      - name: Upload and publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          gh release upload $env:RELEASE_TAG $env:ARCHIVE $env:CHECKSUM --repo $env:REPOSITORY --clobber
+          gh release edit $env:RELEASE_TAG --repo $env:REPOSITORY --draft=false --latest
