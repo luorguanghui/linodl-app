@@ -17,7 +17,7 @@ import type {
 } from "../api/types";
 
 export type ProfileState = ProfileHealthDto;
-export type WorkbenchOperationKind = "search" | "catalog" | "download";
+export type WorkbenchOperationKind = "search" | "catalog" | "download" | "retry";
 type WriteGuard = () => boolean;
 
 const allowWrites: WriteGuard = () => true;
@@ -32,6 +32,7 @@ export interface DesktopState {
   selectedVolumes: string[];
   pendingCancellationIds: string[];
   pendingRestartIds: string[];
+  pendingRetryOperationIds: string[];
   profile: ProfileState;
   settings: DesktopSettingsDto;
   archives: ArchiveDto[];
@@ -54,6 +55,7 @@ export interface DesktopState {
   startManualVerification(targetUrl: string): Promise<void>;
   loadArchives(): Promise<void>;
   startVerify(archiveId: string): Promise<void>;
+  startRetry(operationId: string): Promise<void>;
   startExport(archiveId: string, perVolume: boolean): Promise<void>;
   loadSettings(): Promise<void>;
   saveSettings(settings: SaveSettingsDto): Promise<boolean>;
@@ -130,6 +132,7 @@ function createDesktopState(api: DesktopApi): StateCreator<DesktopState> {
     selectedVolumes: [],
     pendingCancellationIds: [],
     pendingRestartIds: [],
+    pendingRetryOperationIds: [],
     profile: { status: "unknown", detail: "" },
     settings: {},
     archives: [],
@@ -316,6 +319,35 @@ function createDesktopState(api: DesktopApi): StateCreator<DesktopState> {
         set({ notice: noticeFor(error) });
       }
     },
+    async startRetry(operationId) {
+      if (get().pendingRetryOperationIds.includes(operationId)) {
+        return;
+      }
+      set((state) => ({
+        pendingRetryOperationIds: [...state.pendingRetryOperationIds, operationId],
+      }));
+      try {
+        const response = await api.startRetry(operationId);
+        if (isBridgeError(response)) {
+          set({ notice: response.error });
+          return;
+        }
+        set({
+          activeOperationId: response.operation_id,
+          activeOperationKind: "retry",
+          activeVerifyOperationId: response.operation_id,
+          notice: null,
+        });
+      } catch (error) {
+        set({ notice: noticeFor(error) });
+      } finally {
+        set((state) => ({
+          pendingRetryOperationIds: state.pendingRetryOperationIds.filter(
+            (id) => id !== operationId,
+          ),
+        }));
+      }
+    },
     async startExport(archiveId, perVolume) {
       try {
         const response = await api.startExport(archiveId, perVolume);
@@ -482,7 +514,7 @@ async function runCommand(
 }
 
 function toWorkbenchKind(kind?: string): WorkbenchOperationKind | null {
-  return kind === "search" || kind === "catalog" || kind === "download"
+  return kind === "search" || kind === "catalog" || kind === "download" || kind === "retry"
     ? kind
     : null;
 }

@@ -2,6 +2,62 @@ from linodl.core.search import SearchEngine
 from linodl.models.novel import NovelInfo
 
 
+class _SearchInput:
+    def __init__(self):
+        self.clicks = 0
+        self.filled_value = None
+        self.fill_options = None
+
+    def wait_for(self, **kwargs):
+        return None
+
+    def click(self, **kwargs):
+        self.clicks += 1
+
+    def fill(self, value, **kwargs):
+        self.filled_value = value
+        self.fill_options = kwargs
+
+
+class _SearchSubmit:
+    @property
+    def first(self):
+        return self
+
+    def click(self, **kwargs):
+        return None
+
+
+class _SearchFormPage:
+    def __init__(self):
+        self.input = _SearchInput()
+        self.submit = _SearchSubmit()
+
+    def locator(self, selector):
+        if "searchkey" in selector:
+            return self.input
+        return self.submit
+
+
+class _CloakSearchFormSession:
+    engine = "cloak"
+
+    def __init__(self):
+        self.page = _SearchFormPage()
+
+
+def test_cloak_search_fills_the_form_without_an_extra_slow_click():
+    """Cloak fill already focuses the field, so a second humanized click delays typing."""
+    session = _CloakSearchFormSession()
+
+    assert SearchEngine()._submit_search_form(session, "test title")
+    assert session.page.input.filled_value == "test title"
+    assert session.page.input.clicks == 0
+    config = session.page.input.fill_options["human_config"]
+    assert config["field_switch_delay"] == (0, 0)
+    assert config["typing_pause_chance"] == 0
+
+
 def test_search_tries_direct_form_before_rank_and_listing(monkeypatch):
     engine = SearchEngine()
     calls = []
@@ -26,6 +82,30 @@ def test_search_tries_direct_form_before_rank_and_listing(monkeypatch):
 
     assert calls == ["form"]
     assert [(r.title, r.novel_id) for r in results] == [("Direct Hit", "1")]
+
+
+def test_search_rejects_stale_browser_form_results_before_falling_back(monkeypatch):
+    """A reused browser page must not make a new query display the old novel."""
+    engine = SearchEngine()
+    calls = []
+
+    monkeypatch.setattr(
+        engine,
+        "_try_browser_form",
+        lambda keyword: calls.append("form") or '<a href="/novel/1.html">Old Novel</a>',
+    )
+    monkeypatch.setattr(
+        engine,
+        "_try_cloudscraper_post",
+        lambda keyword: calls.append("direct") or '<a href="/novel/2.html">New Novel</a>',
+    )
+
+    results = engine.search("New")
+
+    assert calls == ["form", "direct"]
+    assert [(result.title, result.novel_id) for result in results] == [
+        ("New Novel", "2"),
+    ]
 
 
 def test_filter_results_by_keyword_returns_only_title_matches():

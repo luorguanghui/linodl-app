@@ -10,6 +10,14 @@ from linodl.desktop.controller import (
     UnsupportedTaskInput,
 )
 from linodl.gui.tasks import TaskInputSnapshot, TaskStore
+from linodl.models.novel import (
+    Chapter,
+    ChapterIssue,
+    DownloadResult,
+    NovelInfo,
+    VerificationResult,
+    Volume,
+)
 
 
 class FinishedWorker:
@@ -274,6 +282,141 @@ def test_download_result_does_not_serialize_runtime_downloader_object():
 
     assert operation["status"] == "completed"
     assert operation["result"] == [{"success": 1}, {"is_clean": True}]
+
+
+def test_controller_starts_retry_with_only_recoverable_download_issues():
+    volume = Volume(
+        name="Volume 1",
+        chapters=[
+            Chapter(
+                index=1,
+                url="/novel/1/1.html",
+                title="Chapter 1",
+                is_illustration=False,
+                volume_name="Volume 1",
+            )
+        ],
+    )
+    novel = NovelInfo(title="Book A", catalog_url="https://www.linovelib.com/novel/1/catalog")
+    retryable = ChapterIssue(
+        volume_name="Volume 1",
+        chapter_index=1,
+        chapter_title="Chapter 1",
+        chapter_url="/novel/1/1.html",
+        issue="missing",
+    )
+    unrecoverable = ChapterIssue(
+        volume_name="Volume 1",
+        chapter_index=2,
+        chapter_title="Old chapter",
+        issue="missing",
+    )
+    verification = VerificationResult(issues=[retryable, unrecoverable])
+    captured = {}
+
+    def catalog_factory(payload, message_queue, owner):
+        return EventWorker(
+            message_queue,
+            owner,
+            events=(("result", ([volume], novel)), ("done", None)),
+            task_id="task-catalog",
+        )
+
+    def download_factory(payload, message_queue, owner):
+        return EventWorker(
+            message_queue,
+            owner,
+            events=(("result", (DownloadResult(), verification, object())), ("done", None)),
+            task_id="task-download",
+        )
+
+    def retry_factory(payload, message_queue, owner):
+        captured.update(payload)
+        return EventWorker(message_queue, owner, task_id="task-retry")
+
+    controller = DesktopController(
+        task_store=TaskStore(),
+        worker_factories={
+            "catalog": catalog_factory,
+            "download": download_factory,
+            "retry": retry_factory,
+        },
+    )
+    catalog_operation_id = controller.start("catalog", url=novel.catalog_url)
+    controller.drain_events()
+    download_operation_id = controller.start(
+        "download",
+        catalog_operation_id=catalog_operation_id,
+        selected_volumes=["Volume 1"],
+        output_dir="archive-output",
+    )
+    controller.drain_events()
+
+    retry_operation_id = controller.retry(download_operation_id)
+
+    assert retry_operation_id
+    assert captured["volumes"] == [volume]
+    assert captured["selected_volumes"] == ["Volume 1"]
+    assert captured["novel_info"] == novel
+    assert captured["output_dir"] == "archive-output"
+    assert captured["verification"].issues == [retryable]
+
+
+def test_controller_starts_retry_from_a_completed_verify_operation():
+    volume = Volume(
+        name="Volume 1",
+        chapters=[
+            Chapter(
+                index=1,
+                url="/novel/1/1.html",
+                title="Chapter 1",
+                is_illustration=False,
+                volume_name="Volume 1",
+            )
+        ],
+    )
+    verification = VerificationResult(
+        issues=[
+            ChapterIssue(
+                volume_name="Volume 1",
+                chapter_index=1,
+                chapter_title="Chapter 1",
+                chapter_url="/novel/1/1.html",
+                issue="missing",
+            )
+        ]
+    )
+    captured = {}
+
+    def verify_factory(payload, message_queue, owner):
+        return EventWorker(
+            message_queue,
+            owner,
+            events=(("result", verification), ("done", None)),
+            task_id="task-verify",
+        )
+
+    def retry_factory(payload, message_queue, owner):
+        captured.update(payload)
+        return EventWorker(message_queue, owner, task_id="task-retry")
+
+    controller = DesktopController(
+        task_store=TaskStore(),
+        worker_factories={"verify": verify_factory, "retry": retry_factory},
+    )
+    verify_operation_id = controller.start(
+        "verify",
+        volumes=[volume],
+        selected_volumes=["Volume 1"],
+        novel_info=NovelInfo(title="Book A"),
+        output_dir="archive-output",
+    )
+    controller.drain_events()
+
+    controller.retry(verify_operation_id)
+
+    assert captured["novel_info"].title == "Book A"
+    assert captured["verification"].issues == verification.issues
 
 
 def test_unserializable_worker_result_becomes_safe_failed_operation():

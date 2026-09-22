@@ -10,18 +10,21 @@ from typing import Callable, Mapping
 
 from ..config.manager import ConfigManager
 from ..core.catalog import normalize_catalog_url
+from ..core.downloader import Downloader
 from ..core.sanitization import redact_sensitive_text
 from ..gui.tasks import TaskStore, task_store as shared_task_store
 from ..gui.workers import (
     CatalogWorker,
     DownloadWorker,
     ExportWorker,
+    RetryWorker,
     SearchWorker,
     VerifyWorker,
     WarmupWorker,
     cancel_task,
     focus_task_verification,
 )
+from ..models.novel import NovelInfo, VerificationResult
 from .serialization import to_primitive
 
 
@@ -44,6 +47,14 @@ class UnsupportedTaskInput(ValueError):
     """Raised when a persisted task kind is not supported by desktop recovery."""
 
 
+class RetrySourceNotFound(ValueError):
+    """Raised when an operation has no completed verification to retry."""
+
+
+class NoRetryableIssues(ValueError):
+    """Raised when verification found no issue with a recoverable source URL."""
+
+
 @dataclass(frozen=True)
 class OperationOwner:
     operation_id: str
@@ -58,6 +69,15 @@ class OperationRecord:
     detail: str = ""
     result: object = None
     error: str = ""
+
+
+@dataclass(frozen=True)
+class RetrySource:
+    volumes: object
+    selected_volumes: object
+    novel_info: NovelInfo
+    output_dir: str
+    verification: VerificationResult
 
 
 class DesktopController:
@@ -80,6 +100,8 @@ class DesktopController:
         self._lock = threading.RLock()
         self._operations: dict[str, OperationRecord] = {}
         self._workers: dict[str, object] = {}
+        self._operation_payloads: dict[str, dict] = {}
+        self._retry_sources: dict[str, RetrySource] = {}
         self._catalog_results: dict[str, tuple[object, object]] = {}
         self._catalog_source_urls: dict[str, str] = {}
         self._operation_version = 0
@@ -109,6 +131,19 @@ class DesktopController:
                 q,
                 owner,
                 output_dir=payload.get("output_dir"),
+            ),
+            "retry": lambda payload, q, owner: RetryWorker(
+                Downloader(
+                    output_dir=payload["output_dir"],
+                    delay_range=config.delay_range,
+                ),
+                payload["volumes"],
+                payload["selected_volumes"],
+                payload["novel_info"],
+                config,
+                q,
+                owner,
+                verification=payload["verification"],
             ),
             "verify": lambda payload, q, owner: VerifyWorker(
                 payload["volumes"],
@@ -145,6 +180,7 @@ class DesktopController:
                 status="running",
             )
             self._workers[operation_id] = worker
+            self._operation_payloads[operation_id] = prepared_payload
             if kind == "catalog":
                 self._catalog_source_urls[operation_id] = normalize_catalog_url(
                     str(payload.get("url", "")).strip()
@@ -193,6 +229,7 @@ class DesktopController:
                         operation.detail = redact_sensitive_text(data)
                 elif event_type == "result":
                     try:
+                        self._cache_retry_source(operation, data)
                         operation.result = self._serialize_result(operation.kind, data)
                     except TypeError:
                         operation.status = "failed"
@@ -214,9 +251,32 @@ class DesktopController:
         if isinstance(result, tuple) and len(result) == 2:
             self._catalog_results[operation_id] = result
 
+    def _cache_retry_source(self, operation: OperationRecord, result: object) -> None:
+        if operation.kind not in {"download", "verify"}:
+            return
+        verification = result[1] if operation.kind == "download" and isinstance(result, tuple) and len(result) >= 2 else result
+        if not isinstance(verification, VerificationResult):
+            return
+        payload = self._operation_payloads.get(operation.id)
+        if payload is None:
+            return
+        novel_info = payload.get("novel_info")
+        if not isinstance(novel_info, NovelInfo):
+            novel_info = NovelInfo()
+        output_dir = str(payload.get("output_dir") or "")
+        if not output_dir:
+            return
+        self._retry_sources[operation.id] = RetrySource(
+            volumes=payload.get("volumes", []),
+            selected_volumes=payload.get("selected_volumes", []),
+            novel_info=novel_info,
+            output_dir=output_dir,
+            verification=verification,
+        )
+
     @staticmethod
     def _serialize_result(kind: str, result: object) -> object:
-        if kind == "download" and isinstance(result, tuple) and len(result) == 3:
+        if kind in {"download", "retry"} and isinstance(result, tuple) and len(result) == 3:
             result = result[:2]
         return to_primitive(result)
 
@@ -260,6 +320,27 @@ class DesktopController:
 
     def focus_verification(self, task_id: str) -> bool:
         return self._focus_verification_callback(task_id)
+
+    def retry(self, operation_id: str) -> str:
+        with self._lock:
+            source = self._retry_sources.get(operation_id)
+        if source is None:
+            raise RetrySourceNotFound(operation_id)
+        issues = [
+            issue
+            for issue in source.verification.issues
+            if isinstance(issue.chapter_url, str) and issue.chapter_url.strip()
+        ]
+        if not issues:
+            raise NoRetryableIssues(operation_id)
+        return self.start(
+            "retry",
+            volumes=source.volumes,
+            selected_volumes=source.selected_volumes,
+            novel_info=source.novel_info,
+            output_dir=source.output_dir,
+            verification=VerificationResult(issues=issues),
+        )
 
     def restart(self, task_id: str) -> str:
         try:

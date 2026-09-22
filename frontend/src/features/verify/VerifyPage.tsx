@@ -17,6 +17,7 @@ interface VerificationIssue {
   chapter_title?: string;
   issue?: string;
   detail?: string;
+  chapter_url?: string;
 }
 
 interface VerificationSummary {
@@ -31,11 +32,13 @@ export interface VerifyModel {
   archives: ArchiveDto[];
   outputDir: string;
   loading?: boolean;
+  retryPending?: boolean;
   operation?: OperationDto;
   verification?: VerificationSummary;
   loadArchives(): void | Promise<void>;
   chooseDirectory(): string | null | Promise<string | null>;
   startVerify(archiveId: string): void | Promise<void>;
+  startRetry(operationId: string): void | Promise<void>;
 }
 
 interface VerifyPageProps {
@@ -48,7 +51,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function verificationFrom(operation?: OperationDto): VerificationSummary | undefined {
   if (!operation || operation.status !== "completed" || !isRecord(operation.result)) {
-    return undefined;
+    if (!operation || operation.status !== "completed" || !Array.isArray(operation.result)) {
+      return undefined;
+    }
+    const retryVerification = operation.result[1];
+    return isRecord(retryVerification)
+      ? (retryVerification as VerificationSummary)
+      : undefined;
   }
   return operation.result as VerificationSummary;
 }
@@ -68,6 +77,10 @@ function ConnectedVerifyPage() {
   const loadArchives = useDesktopStore((state) => state.loadArchives);
   const chooseDirectory = useDesktopStore((state) => state.chooseDirectory);
   const startVerify = useDesktopStore((state) => state.startVerify);
+  const startRetry = useDesktopStore((state) => state.startRetry);
+  const pendingRetryOperationIds = useDesktopStore(
+    (state) => state.pendingRetryOperationIds,
+  );
 
   return (
     <VerifyView
@@ -75,11 +88,15 @@ function ConnectedVerifyPage() {
         archives,
         outputDir,
         loading,
+        retryPending: operation
+          ? pendingRetryOperationIds.includes(operation.id)
+          : false,
         operation,
         verification: verificationFrom(operation),
         loadArchives,
         chooseDirectory,
         startVerify,
+        startRetry,
       }}
     />
   );
@@ -90,6 +107,8 @@ function VerifyView({ model }: { model: VerifyModel }) {
   const [directory, setDirectory] = useState(model.outputDir);
   const verification = model.verification;
   const issues = verification?.issues ?? [];
+  const retryableIssues = issues.filter((issue) => Boolean(issue.chapter_url));
+  const unretryableIssueCount = issues.length - retryableIssues.length;
 
   useEffect(() => {
     void model.loadArchives();
@@ -212,20 +231,36 @@ function VerifyView({ model }: { model: VerifyModel }) {
             </div>
           </div>
           {issues.length ? (
-            <ul className="verification-issue-list">
-              {issues.map((issue, index) => (
-                <li
-                  className="verification-issue"
-                  key={`${issue.volume_name}-${issue.chapter_index}-${index}`}
+            <>
+              <ul className="verification-issue-list">
+                {issues.map((issue, index) => (
+                  <li
+                    className="verification-issue"
+                    key={`${issue.volume_name}-${issue.chapter_index}-${index}`}
+                  >
+                    <strong>{issue.chapter_title || "未命名章节"}</strong>
+                    <p className="verification-issue-meta">
+                      {issue.volume_name || "未分卷"} · 第 {issue.chapter_index ?? "?"} 章 · {issue.issue || "异常"}
+                    </p>
+                    <p>{issue.detail || "请检查对应章节文件。"}</p>
+                  </li>
+                ))}
+              </ul>
+              {unretryableIssueCount ? (
+                <p className="utility-note">{unretryableIssueCount} 项问题无法自动重试。</p>
+              ) : null}
+              {retryableIssues.length && model.operation ? (
+                <AppButton
+                  className="utility-button"
+                  aria-label="Retry recoverable issues"
+                  icon={RefreshCw}
+                  disabled={model.retryPending}
+                  onClick={() => void model.startRetry(model.operation!.id)}
                 >
-                  <strong>{issue.chapter_title || "未命名章节"}</strong>
-                  <p className="verification-issue-meta">
-                    {issue.volume_name || "未分卷"} · 第 {issue.chapter_index ?? "?"} 章 · {issue.issue || "异常"}
-                  </p>
-                  <p>{issue.detail || "请检查对应章节文件。"}</p>
-                </li>
-              ))}
-            </ul>
+                  重试全部可恢复问题
+                </AppButton>
+              ) : null}
+            </>
           ) : (
             <p className="utility-note">没有发现缺章、空章或损坏文件。</p>
           )}
